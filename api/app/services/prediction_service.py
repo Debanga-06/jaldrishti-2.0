@@ -13,6 +13,7 @@ import zoneinfo
 
 from app.services.weather_service import WeatherService
 from app.services.dataset_repository import DatasetRepository
+from app.services.cwc_telemetry_service import CWCTelemetryService
 
 
 class FloodPredictionService:
@@ -36,14 +37,17 @@ class FloodPredictionService:
         rainfall_24h = weather.get("precipitation_next_24h_mm", 0.0) or 0.0
         peak_intensity = weather.get("peak_hourly_intensity_mm_h", 0.0) or 0.0
 
-        # 2. Detect City Domain (KOLKATA, HOWRAH, or None for unsupported cities)
+        # 2. Detect City Domain
         city_domain = DatasetRepository.get_city_domain(lat, lon, location_name)
         zone_name = DatasetRepository.get_matched_zone_name(city_domain, lat, lon, location_name) if city_domain else None
 
-        # 3. Generate location-dependent spatial prediction points around (lat, lon)
+        # 3. Fetch CWC Ground ARG Telemetry observed rainfall
+        cwc_telemetry = CWCTelemetryService.get_observed_telemetry(city_domain=city_domain, lat=lat, lon=lon)
+
+        # 4. Generate location-dependent spatial prediction points around (lat, lon)
         points = cls._generate_prediction_points(lat, lon, location_name, weather, city_domain, zone_name)
 
-        # 4. Overall location summary evaluation
+        # 5. Overall location summary evaluation
         if points:
             max_point = max(points, key=lambda p: p["risk_score"])
             overall_risk = max_point["risk_level"]
@@ -65,6 +69,21 @@ class FloodPredictionService:
             historical_state = "DEMO / HISTORICAL (HOWRAH)"
             drainage_state = "DEMO DATA (HOWRAH)"
             coverage_label = "HOWRAH MUNICIPAL CORPORATION (HMC) DIGITAL TWIN COVERAGE"
+        elif city_domain == "CHENNAI":
+            terrain_state = "DEMO DATA (CHENNAI)"
+            historical_state = "DEMO / HISTORICAL (CHENNAI)"
+            drainage_state = "DEMO DATA (CHENNAI)"
+            coverage_label = "GREATER CHENNAI CORPORATION (GCC) DIGITAL TWIN COVERAGE"
+        elif city_domain == "DELHI":
+            terrain_state = "DEMO DATA (DELHI)"
+            historical_state = "DEMO / HISTORICAL (DELHI)"
+            drainage_state = "DEMO DATA (DELHI)"
+            coverage_label = "DELHI PWD / MCD DIGITAL TWIN COVERAGE"
+        elif city_domain == "MUMBAI":
+            terrain_state = "DEMO DATA (MUMBAI)"
+            historical_state = "DEMO / HISTORICAL (MUMBAI)"
+            drainage_state = "DEMO DATA (MUMBAI)"
+            coverage_label = "MUMBAI MCGM DIGITAL TWIN COVERAGE"
         else:
             terrain_state = "GENERIC / FALLBACK"
             historical_state = "NOT AVAILABLE FOR THIS AREA"
@@ -86,6 +105,7 @@ class FloodPredictionService:
                 "matched_zone": zone_name or "N/A",
             },
             "weather_input": weather,
+            "cwc_observed_rainfall": cwc_telemetry,
             "prediction_summary": {
                 "overall_risk_level": overall_risk,
                 "overall_depth_range": overall_depth,
@@ -96,7 +116,9 @@ class FloodPredictionService:
             },
             "prediction_points": points,
             "data_states": {
-                "real_weather": weather_state,
+                "real_weather_forecast": weather_state,
+                "cwc_observed_telemetry": cwc_telemetry.get("data_state", "DATA_UNAVAILABLE"),
+                "cwc_observation_source": "CWC Ground Automated Rain Gauge Telemetry",
                 "terrain_slope": terrain_state,
                 "historical_waterlogging": historical_state,
                 "drainage_infrastructure": drainage_state,

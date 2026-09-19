@@ -210,6 +210,8 @@ interface LocationSearchProps {
   isMedicalMode?: boolean;
 }
 
+const GLOBAL_LOCATION_CACHE = new Map<string, LocationSearchResult[]>();
+
 export const LocationSearch: React.FC<LocationSearchProps> = ({
   placeholder = 'Search location (e.g. Joypur, Bishnupur, Barasat, Delhi)...',
   initialValue = '',
@@ -232,9 +234,16 @@ export const LocationSearch: React.FC<LocationSearchProps> = ({
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isAcquiringGps, setIsAcquiringGps] = useState<boolean>(false);
 
+  const prevInitialValueRef = useRef(initialValue);
   useEffect(() => {
-    setQuery(initialValue);
-  }, [initialValue]);
+    if (initialValue !== undefined && initialValue !== prevInitialValueRef.current) {
+      const oldInitial = prevInitialValueRef.current;
+      prevInitialValueRef.current = initialValue;
+      if (!isFocused && (query === oldInitial || query === '')) {
+        setQuery(initialValue);
+      }
+    }
+  }, [initialValue, isFocused, query]);
 
   // Live Geolocation Watcher for Ambulance Mode
   useEffect(() => {
@@ -286,33 +295,58 @@ export const LocationSearch: React.FC<LocationSearchProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
-    if (!query || query.trim().length < 2) {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    const trimmed = (query || '').trim();
+    if (trimmed.length < 2) {
       setSuggestions([]);
       setIsOpen(false);
+      setIsSearching(false);
       return;
     }
 
+    const cacheKey = trimmed.toLowerCase();
+    if (GLOBAL_LOCATION_CACHE.has(cacheKey)) {
+      const cached = GLOBAL_LOCATION_CACHE.get(cacheKey)!;
+      setSuggestions(cached);
+      setIsOpen(cached.length > 0);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
     const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const timer = setTimeout(async () => {
-      setIsSearching(true);
       try {
-        const results = await JaldrishtiApi.searchGeocoding(query);
-        if (!controller.signal.aborted) {
-          setSuggestions(results);
-          setIsOpen(results.length > 0);
-          setIsSearching(false);
+        const results = await JaldrishtiApi.searchGeocoding(trimmed, controller.signal);
+        if (results === null) {
+          return;
         }
-      } catch (err) {
-        if (!controller.signal.aborted) {
+        if (results && results.length > 0) {
+          GLOBAL_LOCATION_CACHE.set(cacheKey, results);
+        }
+        setSuggestions(results || []);
+        setIsOpen((results || []).length > 0);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
           setSuggestions([]);
+        }
+      } finally {
+        if (abortControllerRef.current === controller) {
           setIsSearching(false);
         }
       }
-    }, 300);
+    }, 150);
 
     return () => {
-      controller.abort();
       clearTimeout(timer);
     };
   }, [query]);
@@ -427,8 +461,8 @@ export const LocationSearch: React.FC<LocationSearchProps> = ({
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  handleSelectHospital(hosp);
                 }}
+                onClick={() => handleSelectHospital(hosp)}
                 className="w-full text-left p-3 hover:bg-rose-50/80 transition-colors flex items-start space-x-3 group"
               >
                 <div className="p-1.5 rounded-lg bg-rose-100 text-rose-700 group-hover:bg-rose-600 group-hover:text-white transition-colors shrink-0 mt-0.5">
@@ -466,14 +500,19 @@ export const LocationSearch: React.FC<LocationSearchProps> = ({
       )}
 
       {/* Normal Geocoding Suggestions Dropdown */}
-      {isOpen && suggestions.length > 0 && !showHospitalSuggestions && (
+      {(isOpen || isFocused) && suggestions.length > 0 && !showHospitalSuggestions && (
         <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-64 overflow-y-auto divide-y divide-slate-100 font-sans">
           {suggestions.map((item, idx) => (
             <button
               key={idx}
+              id={`location-suggestion-${idx}`}
+              data-testid="location-suggestion-item"
               type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+              }}
               onClick={() => handleSelect(item)}
-              className="w-full text-left p-3 hover:bg-blue-50/80 transition-colors flex items-start space-x-3 group"
+              className="location-suggestion-btn w-full text-left p-3 hover:bg-blue-50/80 transition-colors flex items-start space-x-3 group"
             >
               <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0 mt-0.5">
                 <MapPin className="w-4 h-4" />

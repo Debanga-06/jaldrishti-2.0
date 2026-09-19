@@ -143,6 +143,7 @@ export const HomeView: React.FC = () => {
                   {isHomeSet ? `Home: ${savedHome.locality}` : 'Home Location Unset'}
                 </h1>
                 <button
+                  id="change-home-btn"
                   onClick={() => setIsEditingHome(!isEditingHome)}
                   className="px-3 py-1 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center space-x-1 border border-blue-200 transition-all shadow-sm"
                   title="Change saved Home location"
@@ -199,6 +200,14 @@ export const HomeView: React.FC = () => {
                 <LocationSearch
                   placeholder="Search any location in India (e.g. Joypur, Bishnupur, Barasat, Delhi, Kolkata, Mumbai...)"
                   onSelectLocation={handleSetHomeDirect}
+                  onSubmitText={async (text) => {
+                    try {
+                      const results = await JaldrishtiApi.searchGeocoding(text);
+                      if (results && results.length > 0) {
+                        handleSetHomeDirect(results[0]);
+                      }
+                    } catch (e) {}
+                  }}
                   autoFocus={true}
                 />
               </div>
@@ -339,22 +348,20 @@ export const HomeView: React.FC = () => {
         )}
 
         {/* 3. INTERACTIVE FLOOD MAP */}
-        {isHomeSet && (
-          <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm space-y-3">
-            <div className="flex items-center justify-between px-2">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <MapPin className="w-4 h-4 text-blue-600" />
-                <span>Live Digital Twin Map • {savedHome.locality}</span>
-              </h3>
-              <span className="text-xs font-mono text-slate-400">
-                Center: [{coords[0].toFixed(4)}, {coords[1].toFixed(4)}]
-              </span>
-            </div>
-            <div className="h-[480px] rounded-2xl overflow-hidden border border-slate-200 relative">
-              <FloodMap mode="HOME" />
-            </div>
+        <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between px-2">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <MapPin className="w-4 h-4 text-blue-600" />
+              <span>Live Digital Twin Map • {isHomeSet ? (savedHome.locality || savedHome.name) : 'Kolkata (Ballygunge)'}</span>
+            </h3>
+            <span className="text-xs font-mono text-slate-400">
+              Center: [{coords[0].toFixed(4)}, {coords[1].toFixed(4)}]
+            </span>
           </div>
-        )}
+          <div className="h-[480px] rounded-2xl overflow-hidden border border-slate-200 relative">
+            <FloodMap mode="HOME" />
+          </div>
+        </div>
       </div>
     </div>
   );

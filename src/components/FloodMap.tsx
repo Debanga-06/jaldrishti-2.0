@@ -25,12 +25,15 @@ import {
   Building2,
   AlertTriangle,
   X,
+  Clock,
 } from 'lucide-react';
-import { useFloodStore } from '../store/useFloodStore';
-import { FloodHotspot } from '../types';
-import { getMapLibreStyle } from '../config/mapProviderConfig';
 import { JaldrishtiApi } from '../services/api';
 import { CommunityFeedbackSection } from './CommunityFeedbackSection';
+import { GisDashboardResponse, StreetProjectionRecord, SurfaceFlowCell } from '../types';
+import { FloodDashboardSummary } from './FloodDashboardSummary';
+import { getMapLibreStyle } from '../config/mapProviderConfig';
+import { simplifyDisplayGeometry } from '../utils/geometrySimplifier';
+
 
 interface FloodMapProps {
   mode?: 'HOME' | 'SEARCH' | 'NAV';
@@ -415,6 +418,10 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     viewExperience,
     savedHome,
     selectedFromLocation,
+    nowcastSelectedOffset,
+    nowcastData,
+    setNowcastOffset,
+    setNowcastData,
   } = useFloodStore();
 
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
@@ -426,7 +433,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
 
   // Memoized Hazard Relocation Calculation Engine (Prevents 6,000+ geometric radial loops per frame during panning/zooming)
   const memoizedValidatedPoints = React.useMemo(() => {
-    const allRoutes = activeRouteResponse
+    const allRoutes = (mode !== 'HOME' && activeRouteResponse)
       ? [
           activeRouteResponse.recommended_route,
           ...(activeRouteResponse.candidate_routes || []),
@@ -443,47 +450,73 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       }
     });
 
-    const currentPoints = activeRouteResponse
-      ? (activeRoute?.flood_points || [])
+    const nowcastPoints = nowcastData?.timesteps?.[nowcastSelectedOffset]?.prediction_points;
+
+    const currentPoints = (nowcastPoints && nowcastPoints.length > 0)
+      ? nowcastPoints
       : (dynamicPrediction?.prediction_points || []);
 
-    return currentPoints.map((pt: any) => {
-      const rawLon = pt.longitude !== undefined ? pt.longitude : pt.lon;
-      const rawLat = pt.latitude !== undefined ? pt.latitude : pt.lat;
-      const depth = pt.predicted_water_depth_cm ?? pt.numeric_depth_cm ?? 10.0;
-      const spotName = pt.spot_name || pt.description || 'Waterlogging Area';
+    return (currentPoints || [])
+      .filter((pt: any) => pt !== null && pt !== undefined)
+      .map((pt: any) => {
+        const rawLon = pt.longitude !== undefined ? pt.longitude : (pt.lon !== undefined ? pt.lon : (pt.lng !== undefined ? pt.lng : (pt.coords ? pt.coords[0] : undefined)));
+        const rawLat = pt.latitude !== undefined ? pt.latitude : (pt.lat !== undefined ? pt.lat : (pt.coords ? pt.coords[1] : undefined));
 
-      const validated = relocateAndValidateHazard([rawLon, rawLat], routeSegments, 65, 25);
-      return {
-        ...pt,
-        rawLon,
-        rawLat,
-        depth,
-        spotName,
-        validatedCenter: validated.center,
-        validatedPolyCoords: validated.polygonCoords,
-      };
-    });
-  }, [activeRouteResponse, selectedRouteIndex, dynamicPrediction]);
+        if (rawLon === undefined || rawLat === undefined || isNaN(Number(rawLon)) || isNaN(Number(rawLat))) {
+          return null;
+        }
 
-  // Fetch dynamic location prediction from multi-factor prediction engine
+        const depth = pt.predicted_water_depth_cm ?? pt.numeric_depth_cm ?? pt.depth ?? 10.0;
+        const spotName = pt.spot_name || pt.description || 'Waterlogging Area';
+
+        const validated = relocateAndValidateHazard([Number(rawLon), Number(rawLat)], routeSegments, 65, 25);
+        return {
+          ...pt,
+          rawLon: Number(rawLon),
+          rawLat: Number(rawLat),
+          depth,
+          spotName,
+          validatedCenter: validated.center,
+          validatedPolyCoords: validated.polygonCoords,
+        };
+      })
+      .filter(Boolean);
+  }, [activeRouteResponse, selectedRouteIndex, dynamicPrediction, mode, nowcastData, nowcastSelectedOffset]);
+
+  const [gisDashboardData, setGisDashboardData] = useState<GisDashboardResponse | null>(null);
+  const [selectedStreet, setSelectedStreet] = useState<StreetProjectionRecord | null>(null);
+  const [selectedCell, setSelectedCell] = useState<SurfaceFlowCell | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(false);
+
+  // Fetch dynamic location prediction from multi-factor prediction engine & Part 5 Web GIS Dashboard
   useEffect(() => {
     let lat = 22.7214;
     let lon = 88.4821;
     let locName = 'Target Location';
 
+    const map = mapInstanceRef.current;
+
     if (selectedFromLocation?.lat && selectedFromLocation?.lon) {
       lat = selectedFromLocation.lat;
       lon = selectedFromLocation.lon;
       locName = selectedFromLocation.locality || selectedFromLocation.display_name || 'Selected Location';
-    } else if (mode === 'HOME' && savedHome?.coordinates && (savedHome.coordinates[0] !== 0 || savedHome.coordinates[1] !== 0)) {
-      lat = savedHome.coordinates[0];
-      lon = savedHome.coordinates[1];
-      locName = savedHome.locality || savedHome.address || 'Saved Home';
     } else if (activeRouteResponse?.origin?.coordinates) {
       lat = activeRouteResponse.origin.coordinates[0];
       lon = activeRouteResponse.origin.coordinates[1];
       locName = activeRouteResponse.origin.name || 'Search Location';
+    } else if (mode === 'HOME' && savedHome?.coordinates && (savedHome.coordinates[0] !== 0 || savedHome.coordinates[1] !== 0)) {
+      lat = savedHome.coordinates[0];
+      lon = savedHome.coordinates[1];
+      locName = savedHome.locality || savedHome.address || 'Saved Home';
+    } else if (map) {
+      const center = map.getCenter();
+      lat = center.lat;
+      lon = center.lng;
+      locName = 'Map View';
+    } else if (savedHome?.coordinates && (savedHome.coordinates[0] !== 0 || savedHome.coordinates[1] !== 0)) {
+      lat = savedHome.coordinates[0];
+      lon = savedHome.coordinates[1];
+      locName = savedHome.locality || savedHome.address || 'Saved Home';
     }
 
     JaldrishtiApi.getWaterloggingPrediction(lat, lon, locName).then((res) => {
@@ -491,19 +524,36 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         setDynamicPrediction(res);
       }
     });
-  }, [savedHome, activeRouteResponse, selectedFromLocation, mode]);
+
+    JaldrishtiApi.getFloodNowcast(lat, lon, locName).then((res) => {
+      if (res && res.timesteps) {
+        setNowcastData(res);
+      }
+    });
+
+    setIsLoadingDashboard(true);
+    JaldrishtiApi.getGisDashboard(lat, lon, locName, nowcastSelectedOffset).then((res) => {
+      if (res) {
+        setGisDashboardData(res);
+      }
+      setIsLoadingDashboard(false);
+    });
+  }, [savedHome, activeRouteResponse, selectedFromLocation, mode, nowcastSelectedOffset, mapLoaded]);
+
 
   // Helper to project lon/lat coordinates to canvas pixel position within viewport bounds
   const projectCoord = (lon: number, lat: number) => {
     const map = mapInstanceRef.current;
-    if (!map) return null;
+    if (!map || lon === undefined || lat === undefined || isNaN(Number(lon)) || isNaN(Number(lat))) return null;
     try {
-      const pt = map.project([lon, lat]);
+      const pt = map.project([Number(lon), Number(lat)]);
+      if (!pt || isNaN(pt.x) || isNaN(pt.y)) return null;
       const container = mapContainerRef.current;
       if (!container) return null;
       const w = container.clientWidth;
       const h = container.clientHeight;
-      if (pt.x < -30 || pt.x > w + 30 || pt.y < -30 || pt.y > h + 30) {
+      if (w === 0 || h === 0) return null;
+      if (pt.x < -60 || pt.x > w + 60 || pt.y < -60 || pt.y > h + 60) {
         return null;
       }
       return { x: pt.x, y: pt.y };
@@ -591,7 +641,15 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         pixelRatio: Math.min(window.devicePixelRatio || 1, 3),
         trackResize: true,
         maxTileCacheSize: 120,
+        scrollZoom: true,
+        dragPan: true,
+        dragRotate: true,
+        doubleClickZoom: true,
+        touchZoomRotate: true,
       });
+
+      mapInstanceRef.current = map;
+      (window as any)._mapInstance = map;
 
       // Automatic container resize observer for sharp rendering on 1080p / 4K / Mobile displays
       const resizeObserver = new ResizeObserver(() => {
@@ -606,7 +664,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
 
       map.on('load', () => {
         setMapLoaded(true);
-        mapInstanceRef.current = map;
+        map.resize();
         map.resize();
 
         let animFrameId: number | null = null;
@@ -678,12 +736,6 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       if (selectedFromLocation?.lat && selectedFromLocation?.lon) {
         targetLat = selectedFromLocation.lat;
         targetLon = selectedFromLocation.lon;
-      } else if (dynamicPrediction?.location?.latitude && dynamicPrediction?.location?.longitude) {
-        targetLat = dynamicPrediction.location.latitude;
-        targetLon = dynamicPrediction.location.longitude;
-      } else if (savedHome?.coordinates && (savedHome.coordinates[0] !== 0 || savedHome.coordinates[1] !== 0)) {
-        targetLat = savedHome.coordinates[0];
-        targetLon = savedHome.coordinates[1];
       }
     }
 
@@ -692,7 +744,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         center: [targetLon, targetLat],
         zoom: 14.5,
         essential: true,
-        duration: 1500,
+        duration: 700,
       });
 
       // Update or create Home Marker when savedHome is set
@@ -891,10 +943,12 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           const candidateFeatures: GeoJSON.Feature[] = [];
           allRoutes.forEach((r: any, rIdx: number) => {
             if (rIdx !== selectedRouteIndex && r.geometry) {
+              const geomCoords = extractCoordsFromGeometry(r.geometry);
+              const simplifiedGeom = simplifyDisplayGeometry(geomCoords, 2500);
               candidateFeatures.push({
                 type: 'Feature',
                 properties: { route_id: r.route_id || `ALT-${rIdx}` },
-                geometry: { type: 'LineString', coordinates: r.geometry },
+                geometry: { type: 'LineString', coordinates: simplifiedGeom },
               });
             }
           });
@@ -930,23 +984,26 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           }
 
           if (activeRoute) {
-            const routeCoords: [number, number][] = activeRoute.geometry || [];
+            const rawRouteCoords: [number, number][] = extractCoordsFromGeometry(activeRoute.geometry);
+            const routeCoords: [number, number][] = simplifyDisplayGeometry(rawRouteCoords, 2500);
             const segments: any[] = activeRoute.segments || [];
 
             // Build GeoJSON features for solid, uniform emerald green recommended route (#10b981)
-            const segmentFeatures: GeoJSON.Feature[] = segments.map((seg: any) => ({
-              type: 'Feature',
-              properties: {
-                color: '#10b981',
-                depth: seg.predicted_water_depth_cm || 0,
-                risk: seg.risk_state || 'SAFE',
-                label: seg.depth_label || 'SAFE',
-              },
-              geometry: {
-                type: 'LineString',
-                coordinates: [seg.start_coords, seg.end_coords],
-              },
-            }));
+            const segmentFeatures: GeoJSON.Feature[] = segments
+              .filter((seg: any) => seg.start_coords && seg.end_coords)
+              .map((seg: any) => ({
+                type: 'Feature',
+                properties: {
+                  color: '#10b981',
+                  depth: seg.predicted_water_depth_cm || 0,
+                  risk: seg.risk_state || 'SAFE',
+                  label: seg.depth_label || 'SAFE',
+                },
+                geometry: {
+                  type: 'LineString',
+                  coordinates: [seg.start_coords, seg.end_coords],
+                },
+              }));
 
             if (segmentFeatures.length === 0 && routeCoords.length >= 2) {
               segmentFeatures.push({
@@ -984,11 +1041,13 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
                 id: 'safe-route-core',
                 type: 'line',
                 source: 'safe-route-src',
+                layout: {
+                  'line-cap': 'round',
+                  'line-join': 'round',
+                },
                 paint: {
                   'line-color': '#10b981',
                   'line-width': 7,
-                  'line-cap': 'round',
-                  'line-join': 'round',
                   'line-opacity': 1.0,
                 },
               });
@@ -1033,14 +1092,16 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
               floodPointMarkersRef.current.forEach((m) => m.remove());
               floodPointMarkersRef.current = [];
 
-              // Camera fitBounds to the complete searched route journey
-              const bounds = new maplibregl.LngLatBounds();
-              routeCoords.forEach((c) => bounds.extend(c));
-              map.fitBounds(bounds, {
-                padding: { top: 70, bottom: 70, left: 70, right: 70 },
-                duration: 1200,
-                maxZoom: 16,
-              });
+              // Camera fitBounds to the complete searched route journey when live navigation is not active or GPS location is pending
+              if (!isLiveNavActive || !userGpsCoords) {
+                const bounds = new maplibregl.LngLatBounds();
+                routeCoords.forEach((c) => bounds.extend(c));
+                map.fitBounds(bounds, {
+                  padding: { top: 70, bottom: 70, left: 70, right: 70 },
+                  duration: 1200,
+                  maxZoom: 16,
+                });
+              }
             }
 
             // Live GPS Position Marker Update ("YOU ARE HERE")
@@ -1061,7 +1122,15 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
                 userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
               }
 
-              map.easeTo({ center: gpsLngLat, zoom: 16, duration: 800 });
+              // Fit camera bounds to encompass complete route polyline AND live GPS marker so green route polyline never disappears
+              const bounds = new maplibregl.LngLatBounds();
+              routeCoords.forEach((c) => bounds.extend(c));
+              bounds.extend(gpsLngLat);
+              map.fitBounds(bounds, {
+                padding: { top: 70, bottom: 70, left: 70, right: 70 },
+                duration: 800,
+                maxZoom: 15,
+              });
             } else if (userGpsMarkerRef.current) {
               userGpsMarkerRef.current.remove();
               userGpsMarkerRef.current = null;
@@ -1085,7 +1154,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       } catch (err) {
         console.warn('Map overlay update warning:', err);
       }
-    }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode]);
+    }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints]);
 
   const getInfraIcon = (type: string) => {
     switch (type) {
@@ -1337,8 +1406,8 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
                 <p className="text-[10px] text-slate-500 italic mt-1">{selectedFloodPoint.description}</p>
               </div>
 
-              {/* COMMUNITY FEEDBACK SECTION AT THE BOTTOM OF THE SAME PANEL (NON-PURPLE ONLY) */}
-              {!isPurple && <CommunityFeedbackSection spotId={spotId} spotName={spotName} />}
+              {/* COMMUNITY FEEDBACK SECTION AT THE BOTTOM OF THE PANEL */}
+              <CommunityFeedbackSection spotId={spotId} spotName={spotName} />
             </div>
           </div>
         );
@@ -1428,12 +1497,69 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
                 </p>
               </div>
 
-              {/* COMMUNITY FEEDBACK SECTION AT THE BOTTOM OF THE SAME PANEL (NON-PURPLE ONLY) */}
-              {!isPurple && <CommunityFeedbackSection spotId={spotId} spotName={spotName} />}
+              {/* COMMUNITY FEEDBACK SECTION AT THE BOTTOM OF THE PANEL */}
+              <CommunityFeedbackSection spotId={spotId} spotName={spotName} />
             </div>
           </div>
         );
       })()}
+
+      {/* Part 6 Street Projection Detail Modal Popover */}
+      {selectedStreet && (
+        <div className="absolute top-3 bottom-3 left-3 z-50 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl max-w-sm w-full font-sans max-h-[calc(100%-1.5rem)] flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-100 bg-white/95 backdrop-blur-md shrink-0 z-50">
+            <h4 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5 truncate pr-2">
+              <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="truncate">STREET FLOOD PROJECTION</span>
+            </h4>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedStreet(null);
+              }}
+              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-600 border border-slate-200 flex items-center justify-center transition-all shadow-sm shrink-0 cursor-pointer font-bold"
+              title="Close panel"
+            >
+              <X className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </div>
+          <div className="p-3.5 space-y-2 text-xs text-slate-700 overflow-y-auto">
+            <div className="font-bold text-slate-900 text-sm">{selectedStreet.road_name}</div>
+            <div className="flex justify-between py-1 border-b border-slate-100">
+              <span className="text-slate-500">Water Depth:</span>
+              <span className="font-bold text-blue-700 font-mono text-sm">{selectedStreet.max_predicted_depth_cm} cm</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-100">
+              <span className="text-slate-500">Severity:</span>
+              <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                selectedStreet.risk_level === 'CLOSED' || selectedStreet.risk_level === 'CRITICAL' ? 'bg-purple-100 text-purple-900' :
+                selectedStreet.risk_level === 'HIGH' ? 'bg-rose-100 text-rose-800' :
+                selectedStreet.risk_level === 'CAUTION' || selectedStreet.risk_level === 'MODERATE' ? 'bg-amber-100 text-amber-800' :
+                'bg-emerald-100 text-emerald-800'
+              }`}>
+                {selectedStreet.risk_level}
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-100">
+              <span className="text-slate-500">Forecast Horizon:</span>
+              <span className="font-mono text-slate-800 font-semibold">{selectedStreet.horizon || `T+${nowcastSelectedOffset}h`}</span>
+            </div>
+            <div className="flex justify-between py-1 border-b border-slate-100">
+              <span className="text-slate-500">Data Provenance:</span>
+              <span className="font-mono text-blue-600 text-[10px] bg-blue-50 px-1.5 py-0.5 rounded font-bold">
+                {gisDashboardData?.provenance?.rainfall_provenance_badge || selectedStreet.data_state || 'PREDICTED'}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] space-y-1 font-mono">
+              <div className="font-bold text-slate-700">Drainage Hydraulics Status:</div>
+              <div>Node ID: <strong className="text-slate-900">{selectedStreet.drainage_node_id}</strong></div>
+              <div>Drain Type: <strong className="text-slate-900">{selectedStreet.drainage_type}</strong></div>
+              <div>Pipe Utilization: <strong className="text-indigo-600">{Math.round((selectedStreet.capacity_utilization || 0) * 100)}%</strong></div>
+              <div>Blockage Status: <strong className="text-slate-800">{selectedStreet.blockage_status || 'OBSERVED DATASET'} ({selectedStreet.blockage_pct || 0}%)</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Water Depth Ramp & Clean Controls (White + Blue Aesthetic) */}
       <div className="absolute top-3 left-3 z-20 flex flex-col space-y-2 select-none font-sans">
@@ -1443,28 +1569,63 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
             <span className="text-slate-900">FLOOD WATER DEPTH</span>
             <span className="text-blue-600 text-[10px] uppercase font-semibold">LIVE NOWCAST</span>
           </div>
-          <div className="flex items-center space-x-1.5 text-[11px] font-semibold flex-wrap gap-y-1">
-            <span className="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <div className="flex items-center space-x-1 text-[10px] font-semibold flex-wrap gap-1">
+            <span className="inline-flex items-center space-x-1 bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
               <span>0-5 cm SAFE</span>
             </span>
-            <span className="inline-flex items-center space-x-1 bg-blue-50 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
-              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+            <span className="inline-flex items-center space-x-1 bg-yellow-50 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200">
+              <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
               <span>5-15 cm CAUTION</span>
             </span>
-            <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-900 px-2 py-0.5 rounded border border-amber-200">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span className="inline-flex items-center space-x-1 bg-orange-50 text-orange-900 px-1.5 py-0.5 rounded border border-orange-200">
+              <span className="w-2 h-2 rounded-full bg-orange-500"></span>
               <span>15-30 cm HIGH</span>
             </span>
-            <span className="inline-flex items-center space-x-1 bg-rose-50 text-rose-900 px-2 py-0.5 rounded border border-rose-200">
+            <span className="inline-flex items-center space-x-1 bg-rose-50 text-rose-900 px-1.5 py-0.5 rounded border border-rose-200">
               <span className="w-2 h-2 rounded-full bg-rose-600"></span>
               <span>30-50 cm CRITICAL</span>
             </span>
-            <span className="inline-flex items-center space-x-1 bg-purple-50 text-purple-900 px-2 py-0.5 rounded border border-purple-200">
+            <span className="inline-flex items-center space-x-1 bg-purple-50 text-purple-900 px-1.5 py-0.5 rounded border border-purple-200">
               <span className="w-2 h-2 rounded-full bg-purple-600"></span>
               <span>&gt;50 cm CLOSED</span>
             </span>
           </div>
+        </div>
+
+        {/* NOWCAST 0–3h Temporal Layer Control */}
+        <div id="nowcast-0-3h-control" className="bg-white/95 border border-slate-200/90 rounded-2xl p-2.5 text-slate-900 text-xs shadow-xl backdrop-blur-md space-y-1.5 max-w-xs">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-1 font-bold text-[11px]">
+            <span className="text-slate-900 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-blue-600" />
+              <span>NOWCAST</span>
+            </span>
+            <span className="text-blue-600 text-[10px] uppercase font-semibold">0–3h HORIZON</span>
+          </div>
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-semibold">
+            {[0, 1, 2, 3].map((offset) => (
+              <button
+                key={offset}
+                id={`nowcast-tab-btn-${offset}`}
+                onClick={() => setNowcastOffset(offset)}
+                className={`flex-1 py-1 rounded-lg transition-all text-center text-xs font-mono font-bold ${
+                  nowcastSelectedOffset === offset
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {offset === 0 ? '0h' : `${offset}h`}
+              </button>
+            ))}
+          </div>
+          {nowcastData?.timesteps?.[nowcastSelectedOffset] && (
+            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-0.5">
+              <span>{nowcastData.timesteps[nowcastSelectedOffset].label}</span>
+              <span className="font-bold text-slate-800">
+                {nowcastData.timesteps[nowcastSelectedOffset].rainfall_intensity_mm_h} mm/h
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Map Controls */}

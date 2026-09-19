@@ -412,46 +412,124 @@ class RoutingService:
         """Extracts and formats turn-by-turn navigation instructions from OSRM leg steps."""
         steps_out = []
         legs = route_data.get("legs", [])
-        if not legs:
+
+        if legs:
+            for leg in legs:
+                for s in leg.get("steps", []):
+                    m = s.get("maneuver", {})
+                    m_type = (m.get("type") or "").lower()
+                    m_mod = (m.get("modifier") or "").lower()
+                    street_name = s.get("name") or "road"
+                    dist_m = round(s.get("distance", 0.0), 1)
+
+                    if m_type == "depart":
+                        instruction = f"Head {m_mod.replace('_', ' ') or 'forward'} on {street_name}".strip()
+                    elif m_type == "arrive":
+                        instruction = "Arrive at destination"
+                    elif m_type in ("turn", "end of road", "off ramp", "on ramp"):
+                        if m_mod:
+                            instruction = f"Turn {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Continue onto {street_name}"
+                    elif m_type == "fork":
+                        instruction = f"Take the fork {m_mod.replace('_', ' ')} onto {street_name}"
+                    elif m_type == "roundabout":
+                        instruction = f"At roundabout, take exit onto {street_name}"
+                    elif m_type in ("continue", "new name"):
+                        if m_mod and m_mod != "straight":
+                            instruction = f"Bear {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Continue straight on {street_name}"
+                    elif m_type == "merge":
+                        instruction = f"Merge {m_mod.replace('_', ' ')} onto {street_name}"
+                    else:
+                        if m_mod:
+                            instruction = f"Turn {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Proceed on {street_name}"
+
+                    location = m.get("location", [0.0, 0.0])
+                    steps_out.append({
+                        "instruction": instruction,
+                        "distance_meters": dist_m,
+                        "duration_seconds": round(s.get("duration", 0.0), 1),
+                        "street_name": street_name,
+                        "maneuver_type": m_type,
+                        "maneuver_modifier": m_mod,
+                        "latitude": location[1] if len(location) >= 2 else 0.0,
+                        "longitude": location[0] if len(location) >= 2 else 0.0,
+                    })
+
+        # Fallback polyline bearing step generator if OSRM steps are empty
+        if not steps_out:
+            coords = route_data.get("geometry", {}).get("coordinates", [])
+            if coords and len(coords) >= 2:
+                steps_out = cls._generate_steps_from_polyline(coords)
+
+        return steps_out
+
+    @classmethod
+    def _generate_steps_from_polyline(cls, coords: List[List[float]]) -> List[Dict[str, Any]]:
+        """Generates geometry-anchored turn steps from polyline points if OSRM steps are omitted."""
+        if not coords or len(coords) < 2:
             return []
 
-        for leg in legs:
-            for s in leg.get("steps", []):
-                m = s.get("maneuver", {})
-                m_type = m.get("type", "")
-                m_mod = m.get("modifier", "")
-                street_name = s.get("name") or "road"
+        steps = []
+        d_m = cls._haversine_distance_m(coords[0][1], coords[0][0], coords[1][1], coords[1][0])
+        steps.append({
+            "instruction": "Head forward along primary corridor",
+            "distance_meters": round(d_m, 1),
+            "duration_seconds": round(d_m / 8.0, 1),
+            "street_name": "Main Corridor",
+            "maneuver_type": "depart",
+            "maneuver_modifier": "straight",
+            "latitude": coords[0][1],
+            "longitude": coords[0][0],
+        })
 
-                if m_type == "depart":
-                    instruction = f"Head {m_mod or 'forward'} on {street_name}".strip()
-                elif m_type == "arrive":
-                    instruction = "Arrive at destination"
-                elif m_type in ("turn", "end of road", "off ramp", "on ramp"):
-                    if m_mod:
-                        instruction = f"Turn {m_mod} onto {street_name}"
-                    else:
-                        instruction = f"Continue onto {street_name}"
-                elif m_type == "fork":
-                    instruction = f"Take the fork {m_mod} onto {street_name}"
-                elif m_type == "roundabout":
-                    instruction = f"At roundabout, take exit onto {street_name}"
-                elif m_type in ("continue", "new name"):
-                    instruction = f"Continue on {street_name}"
-                else:
-                    instruction = f"Proceed on {street_name}"
+        accum_dist = 0.0
+        for i in range(1, len(coords) - 1):
+            p1 = coords[i - 1]
+            p2 = coords[i]
+            p3 = coords[i + 1]
 
-                location = m.get("location", [0.0, 0.0])
-                steps_out.append({
-                    "instruction": instruction,
-                    "distance_meters": round(s.get("distance", 0.0), 1),
-                    "duration_seconds": round(s.get("duration", 0.0), 1),
-                    "street_name": s.get("name", ""),
-                    "maneuver_type": m_type,
-                    "maneuver_modifier": m_mod,
-                    "latitude": location[1] if len(location) >= 2 else 0.0,
-                    "longitude": location[0] if len(location) >= 2 else 0.0,
+            seg_dist = cls._haversine_distance_m(p2[1], p2[0], p3[1], p3[0])
+            accum_dist += seg_dist
+
+            b1 = math.atan2(p2[0] - p1[0], p2[1] - p1[1])
+            b2 = math.atan2(p3[0] - p2[0], p3[1] - p2[1])
+            diff_deg = math.degrees(b2 - b1)
+            while diff_deg > 180: diff_deg -= 360
+            while diff_deg < -180: diff_deg += 360
+
+            if abs(diff_deg) >= 25.0 and accum_dist >= 150.0:
+                mod = "right" if diff_deg > 0 else "left"
+                if abs(diff_deg) < 45.0:
+                    mod = f"slight {mod}"
+                steps.append({
+                    "instruction": f"Turn {mod} onto Connecting Corridor",
+                    "distance_meters": round(accum_dist, 1),
+                    "duration_seconds": round(accum_dist / 8.0, 1),
+                    "street_name": "Connecting Corridor",
+                    "maneuver_type": "turn",
+                    "maneuver_modifier": mod,
+                    "latitude": p2[1],
+                    "longitude": p2[0],
                 })
-        return steps_out
+                accum_dist = 0.0
+
+        last_pt = coords[-1]
+        steps.append({
+            "instruction": "Arrive at destination",
+            "distance_meters": round(accum_dist, 1),
+            "duration_seconds": 0.0,
+            "street_name": "Destination",
+            "maneuver_type": "arrive",
+            "maneuver_modifier": "",
+            "latitude": last_pt[1],
+            "longitude": last_pt[0],
+        })
+        return steps
 
     @classmethod
     async def _fetch_osrm_routes(

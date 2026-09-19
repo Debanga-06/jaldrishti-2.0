@@ -205,6 +205,15 @@ class DatasetRepository:
         if "BARASAT" in name_upper or "CHAMPADALI" in name_upper or "KACHHARI" in name_upper or "NABAPALLY" in name_upper:
             return "BARASAT"
 
+        if "CHENNAI" in name_upper or "VELACHERY" in name_upper or "ADYAR" in name_upper or "TAMBARAM" in name_upper or "ANNA NAGAR" in name_upper:
+            return "CHENNAI"
+
+        if "DELHI" in name_upper or "ROHINI" in name_upper or "DWARKA" in name_upper or "LAJPAT NAGAR" in name_upper or "MAYUR VIHAR" in name_upper:
+            return "DELHI"
+
+        if "MUMBAI" in name_upper or "ANDHERI" in name_upper or "KURLA" in name_upper or "BANDRA" in name_upper or "DADAR" in name_upper:
+            return "MUMBAI"
+
         # Bounding box checks
         # Howrah Bounding Box: Lat 22.50 to 22.65, Lon 88.25 to 88.355
         if 22.50 <= lat <= 22.65 and 88.25 <= lon < 88.355:
@@ -218,7 +227,19 @@ class DatasetRepository:
         if 22.65 <= lat <= 22.80 and 88.40 <= lon <= 88.55:
             return "BARASAT"
 
-        # Unsupported city (e.g. Mumbai, Delhi, Bengaluru)
+        # Chennai Bounding Box: Lat 12.80 to 13.25, Lon 79.90 to 80.35
+        if 12.80 <= lat <= 13.25 and 79.90 <= lon <= 80.35:
+            return "CHENNAI"
+
+        # Delhi Bounding Box: Lat 28.40 to 28.90, Lon 76.85 to 77.40
+        if 28.40 <= lat <= 28.90 and 76.85 <= lon <= 77.40:
+            return "DELHI"
+
+        # Mumbai Bounding Box: Lat 18.89 to 19.30, Lon 72.75 to 73.00
+        if 18.89 <= lat <= 19.30 and 72.75 <= lon <= 73.00:
+            return "MUMBAI"
+
+        # Unsupported city (e.g. Bengaluru)
         return None
 
     @classmethod
@@ -228,6 +249,24 @@ class DatasetRepository:
 
         if city == "BARASAT":
             return "Barasat"
+
+        if city == "CHENNAI":
+            for z in ["Velachery", "Adyar", "Tambaram", "Anna Nagar", "Perambur"]:
+                if z.upper() in name_upper:
+                    return z
+            return location_name if location_name != "Target Location" else "Chennai Region"
+
+        if city == "DELHI":
+            for z in ["Rohini", "Dwarka", "Lajpat Nagar", "Mayur Vihar", "Saket", "Model Town"]:
+                if z.upper() in name_upper:
+                    return z
+            return location_name if location_name != "Target Location" else "Delhi Region"
+
+        if city == "MUMBAI":
+            for z in ["Andheri", "Kurla", "Bandra", "Dadar", "Colaba", "Sion"]:
+                if z.upper() in name_upper:
+                    return z
+            return location_name if location_name != "Target Location" else "Mumbai Region"
 
         if city == "KOLKATA":
             for z in cls.KOLKATA_ZONES:
@@ -402,3 +441,44 @@ class DatasetRepository:
         elif verified_count >= 1:
             return 0.05
         return 0.0
+
+    @classmethod
+    def get_city_drains(cls, city: str) -> List[Dict[str, Any]]:
+        """Loads structured drainage dataset for a specified city domain."""
+        import os
+        import pandas as pd
+
+        city_upper = (city or "").upper()
+        if city_upper == "KOLKATA":
+            return cls.KOLKATA_DRAINS
+
+        # File mapping for CSV-based city datasets
+        file_map = {
+            "CHENNAI": "drains_chennai.csv",
+            "DELHI": "drains_delhi.csv",
+            "MUMBAI": "drains_mumbai.csv"
+        }
+
+        filename = file_map.get(city_upper)
+        if not filename:
+            # Return empty list if city has no explicit dataset
+            return []
+
+        base_dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "data"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "data"),
+            r"C:\Users\sourav\antigravity\JALDRISHTI---Urban-Flood-Digital-Twin\api\app\data",
+            r"C:\Users\sourav\antigravity\JALDRISHTI---Urban-Flood-Digital-Twin\backend\app\data"
+        ]
+
+        for bdir in base_dirs:
+            filepath = os.path.join(bdir, filename)
+            if os.path.exists(filepath):
+                try:
+                    df = pd.read_csv(filepath)
+                    return df.to_dict("records")
+                except Exception:
+                    pass
+
+        return []
+

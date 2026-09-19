@@ -1,0 +1,29 @@
+{
+  "observed_at": "2026-09-17T15:00:00+05:30",
+  "station_id": "IMD-DWR-CHE-01",
+  "mean_rainfall_mm_h": 42.5,
+  "max_rainfall_mm_h": 85.0,
+  "optical_flow_vector": {
+    "u_kmh": 18.5,
+    "v_kmh": 12.0,
+    "bearing_deg": 245.0
+  },
+  "rainfall_grid": [
+    {
+      "cell_id": "DWR_CHE_GRID_01",
+      "latitude": 13.0827,
+      "longitude": 80.2757,
+      "reflectivity_dbz": 48.5,
+      "rainfall_rate_mm_h": 42.5,
+      "provenance": "IMD Chennai Doppler Weather Radar"
+    },
+    {
+      "cell_id": "DWR_CHE_GRID_02",
+      "latitude": 13.0100,
+      "longitude": 80.0800,
+      "reflectivity_dbz": 52.0,
+      "rainfall_rate_mm_h": 68.2,
+      "provenance": "IMD Chennai Doppler Weather Radar"
+    }
+  ]
+}

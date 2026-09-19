@@ -182,11 +182,101 @@ class DatasetRepository:
     ]
 
     # ------------------------------------------------------------------
-    # 4. SPATIAL CITY & ZONE LOOKUP UTILITIES
+    # 4. CHENNAI DATASET REGISTRY
+    # ------------------------------------------------------------------
+    CHENNAI_ZONES: Dict[str, Dict[str, Any]] = {
+        "Velachery": {"zone_id": "CHE-Z-01", "ward_ids": "W-170,W-171", "avg_elevation_m": 3.2, "authority": "Greater Chennai Corporation", "area_sq_km": 5.20},
+        "Adyar": {"zone_id": "CHE-Z-02", "ward_ids": "W-172,W-173", "avg_elevation_m": 4.5, "authority": "Greater Chennai Corporation", "area_sq_km": 4.10},
+        "Tambaram": {"zone_id": "CHE-Z-03", "ward_ids": "W-174,W-175", "avg_elevation_m": 8.0, "authority": "Tambaram Corporation", "area_sq_km": 6.30},
+        "Anna Nagar": {"zone_id": "CHE-Z-04", "ward_ids": "W-176,W-177", "avg_elevation_m": 6.2, "authority": "Greater Chennai Corporation", "area_sq_km": 5.80},
+        "Perambur": {"zone_id": "CHE-Z-05", "ward_ids": "W-178,W-179", "avg_elevation_m": 3.8, "authority": "Greater Chennai Corporation", "area_sq_km": 4.20},
+    }
+    CHENNAI_ELEVATION_POINTS: List[Dict[str, Any]] = [
+        {"point_id": "ELV-CHE-01", "zone": "Velachery", "elevation_m": 2.10, "slope_percent": 0.08, "flow_direction": "east", "low_point": True, "lat": 12.9750, "lon": 80.2200},
+        {"point_id": "ELV-CHE-02", "zone": "Adyar", "elevation_m": 3.80, "slope_percent": 0.45, "flow_direction": "east", "low_point": True, "lat": 13.0060, "lon": 80.2570},
+        {"point_id": "ELV-CHE-03", "zone": "Tambaram", "elevation_m": 7.20, "slope_percent": 0.90, "flow_direction": "south", "low_point": False, "lat": 12.9250, "lon": 80.1170},
+        {"point_id": "ELV-CHE-04", "zone": "Anna Nagar", "elevation_m": 5.90, "slope_percent": 0.55, "flow_direction": "north", "low_point": False, "lat": 13.0850, "lon": 80.2100},
+        {"point_id": "ELV-CHE-05", "zone": "Perambur", "elevation_m": 3.40, "slope_percent": 0.15, "flow_direction": "east", "low_point": True, "lat": 13.1150, "lon": 80.2400},
+    ]
+    CHENNAI_HISTORICAL_EVENTS: List[Dict[str, Any]] = [
+        {"event_id": "FH-CHE-01", "location": "Velachery Main Road", "zone": "Velachery", "water_depth_cm": 65, "duration_min": 240, "rainfall_mm": 192, "road_status": "impassable", "cause": "lake overflow & lowland basin", "drain_blocked": True, "pumping_used": True},
+        {"event_id": "FH-CHE-02", "location": "Adyar Canal Bridge", "zone": "Adyar", "water_depth_cm": 45, "duration_min": 180, "rainfall_mm": 128, "road_status": "impassable", "cause": "river surge", "drain_blocked": False, "pumping_used": True},
+    ]
+    CHENNAI_ROADS_TRAINING: Dict[str, Dict[str, Any]] = {
+        "Velachery": {"avg_drain_load_pct": 85.0, "avg_drain_blockage_pct": 38.0, "avg_drain_capacity_m3s": 1.50, "historical_risk": "high", "zone_flood_score": 0.920},
+        "Adyar": {"avg_drain_load_pct": 68.0, "avg_drain_blockage_pct": 25.0, "avg_drain_capacity_m3s": 2.10, "historical_risk": "high", "zone_flood_score": 0.780},
+        "Tambaram": {"avg_drain_load_pct": 55.0, "avg_drain_blockage_pct": 20.0, "avg_drain_capacity_m3s": 2.50, "historical_risk": "medium", "zone_flood_score": 0.520},
+        "Anna Nagar": {"avg_drain_load_pct": 60.0, "avg_drain_blockage_pct": 18.0, "avg_drain_capacity_m3s": 2.80, "historical_risk": "medium", "zone_flood_score": 0.480},
+        "Perambur": {"avg_drain_load_pct": 72.0, "avg_drain_blockage_pct": 30.0, "avg_drain_capacity_m3s": 1.80, "historical_risk": "high", "zone_flood_score": 0.810},
+    }
+
+    # ------------------------------------------------------------------
+    # 5. DELHI DATASET REGISTRY
+    # ------------------------------------------------------------------
+    DELHI_ZONES: Dict[str, Dict[str, Any]] = {
+        "Rohini": {"zone_id": "DEL-Z-01", "ward_ids": "W-021,W-022", "avg_elevation_m": 215.0, "authority": "Delhi PWD", "area_sq_km": 8.50},
+        "Dwarka": {"zone_id": "DEL-Z-02", "ward_ids": "W-023,W-024", "avg_elevation_m": 210.0, "authority": "Delhi PWD / DDA", "area_sq_km": 12.00},
+        "Lajpat Nagar": {"zone_id": "DEL-Z-03", "ward_ids": "W-025,W-026", "avg_elevation_m": 218.0, "authority": "MCD", "area_sq_km": 4.10},
+        "Mayur Vihar": {"zone_id": "DEL-Z-04", "ward_ids": "W-027,W-028", "avg_elevation_m": 204.0, "authority": "Delhi PWD", "area_sq_km": 5.30},
+        "Saket": {"zone_id": "DEL-Z-05", "ward_ids": "W-029,W-030", "avg_elevation_m": 225.0, "authority": "MCD", "area_sq_km": 6.00},
+        "Model Town": {"zone_id": "DEL-Z-06", "ward_ids": "W-031,W-032", "avg_elevation_m": 208.0, "authority": "Delhi PWD", "area_sq_km": 3.90},
+    }
+    DELHI_ELEVATION_POINTS: List[Dict[str, Any]] = [
+        {"point_id": "ELV-DEL-01", "zone": "Rohini", "elevation_m": 214.2, "slope_percent": 0.40, "flow_direction": "east", "low_point": False, "lat": 28.7041, "lon": 77.1025},
+        {"point_id": "ELV-DEL-02", "zone": "Dwarka", "elevation_m": 209.5, "slope_percent": 0.20, "flow_direction": "south", "low_point": True, "lat": 28.5921, "lon": 77.0460},
+        {"point_id": "ELV-DEL-03", "zone": "Lajpat Nagar", "elevation_m": 217.1, "slope_percent": 0.60, "flow_direction": "east", "low_point": False, "lat": 28.5677, "lon": 77.2433},
+        {"point_id": "ELV-DEL-04", "zone": "Mayur Vihar", "elevation_m": 203.8, "slope_percent": 0.10, "flow_direction": "west", "low_point": True, "lat": 28.6080, "lon": 77.2950},
+        {"point_id": "ELV-DEL-05", "zone": "Model Town", "elevation_m": 207.4, "slope_percent": 0.15, "flow_direction": "east", "low_point": True, "lat": 28.7150, "lon": 77.1920},
+    ]
+    DELHI_HISTORICAL_EVENTS: List[Dict[str, Any]] = [
+        {"event_id": "FH-DEL-01", "location": "Minto Bridge Underpass", "zone": "Model Town", "water_depth_cm": 120, "duration_min": 300, "rainfall_mm": 128, "road_status": "impassable", "cause": "underpass drainage failure", "drain_blocked": True, "pumping_used": True},
+        {"event_id": "FH-DEL-02", "location": "Dwarka Underpass Sec 21", "zone": "Dwarka", "water_depth_cm": 48, "duration_min": 150, "rainfall_mm": 85, "road_status": "impassable", "cause": "drainage surcharge", "drain_blocked": False, "pumping_used": True},
+    ]
+    DELHI_ROADS_TRAINING: Dict[str, Dict[str, Any]] = {
+        "Rohini": {"avg_drain_load_pct": 58.0, "avg_drain_blockage_pct": 28.0, "avg_drain_capacity_m3s": 2.90, "historical_risk": "medium", "zone_flood_score": 0.510},
+        "Dwarka": {"avg_drain_load_pct": 72.0, "avg_drain_blockage_pct": 24.0, "avg_drain_capacity_m3s": 3.40, "historical_risk": "high", "zone_flood_score": 0.740},
+        "Lajpat Nagar": {"avg_drain_load_pct": 65.0, "avg_drain_blockage_pct": 31.0, "avg_drain_capacity_m3s": 2.10, "historical_risk": "high", "zone_flood_score": 0.690},
+        "Mayur Vihar": {"avg_drain_load_pct": 78.0, "avg_drain_blockage_pct": 35.0, "avg_drain_capacity_m3s": 1.90, "historical_risk": "high", "zone_flood_score": 0.820},
+        "Saket": {"avg_drain_load_pct": 45.0, "avg_drain_blockage_pct": 15.0, "avg_drain_capacity_m3s": 3.10, "historical_risk": "low", "zone_flood_score": 0.350},
+        "Model Town": {"avg_drain_load_pct": 80.0, "avg_drain_blockage_pct": 40.0, "avg_drain_capacity_m3s": 2.20, "historical_risk": "critical", "zone_flood_score": 0.890},
+    }
+
+    # ------------------------------------------------------------------
+    # 6. MUMBAI DATASET REGISTRY
+    # ------------------------------------------------------------------
+    MUMBAI_ZONES: Dict[str, Dict[str, Any]] = {
+        "Andheri": {"zone_id": "MUM-Z-01", "ward_ids": "W-K/W", "avg_elevation_m": 8.5, "authority": "BMC", "area_sq_km": 14.20},
+        "Kurla": {"zone_id": "MUM-Z-02", "ward_ids": "W-L", "avg_elevation_m": 3.5, "authority": "BMC", "area_sq_km": 9.80},
+        "Dadar": {"zone_id": "MUM-Z-03", "ward_ids": "W-G/N", "avg_elevation_m": 6.1, "authority": "BMC", "area_sq_km": 5.40},
+        "Bandra": {"zone_id": "MUM-Z-04", "ward_ids": "W-H/W", "avg_elevation_m": 11.2, "authority": "BMC", "area_sq_km": 7.10},
+        "Colaba": {"zone_id": "MUM-Z-05", "ward_ids": "W-A", "avg_elevation_m": 5.0, "authority": "BMC", "area_sq_km": 4.00},
+        "Sion": {"zone_id": "MUM-Z-06", "ward_ids": "W-F/N", "avg_elevation_m": 4.0, "authority": "BMC", "area_sq_km": 4.50},
+    }
+    MUMBAI_ELEVATION_POINTS: List[Dict[str, Any]] = [
+        {"point_id": "ELV-MUM-01", "zone": "Andheri", "elevation_m": 7.8, "slope_percent": 0.80, "flow_direction": "west", "low_point": False, "lat": 19.1197, "lon": 72.8464},
+        {"point_id": "ELV-MUM-02", "zone": "Kurla", "elevation_m": 2.9, "slope_percent": 0.10, "flow_direction": "south", "low_point": True, "lat": 19.0728, "lon": 72.8826},
+        {"point_id": "ELV-MUM-03", "zone": "Dadar", "elevation_m": 5.4, "slope_percent": 0.40, "flow_direction": "west", "low_point": True, "lat": 19.0178, "lon": 72.8478},
+        {"point_id": "ELV-MUM-04", "zone": "Sion", "elevation_m": 3.2, "slope_percent": 0.12, "flow_direction": "west", "low_point": True, "lat": 19.0400, "lon": 72.8600},
+    ]
+    MUMBAI_HISTORICAL_EVENTS: List[Dict[str, Any]] = [
+        {"event_id": "FH-MUM-01", "location": "Andheri Subway", "zone": "Andheri", "water_depth_cm": 95, "duration_min": 360, "rainfall_mm": 210, "road_status": "impassable", "cause": "high tide + subway depression", "drain_blocked": True, "pumping_used": True},
+        {"event_id": "FH-MUM-02", "location": "Kurla LBS Marg", "zone": "Kurla", "water_depth_cm": 70, "duration_min": 280, "rainfall_mm": 180, "road_status": "impassable", "cause": "Mithi river overflow", "drain_blocked": True, "pumping_used": True},
+    ]
+    MUMBAI_ROADS_TRAINING: Dict[str, Dict[str, Any]] = {
+        "Andheri": {"avg_drain_load_pct": 74.0, "avg_drain_blockage_pct": 32.0, "avg_drain_capacity_m3s": 4.10, "historical_risk": "critical", "zone_flood_score": 0.880},
+        "Kurla": {"avg_drain_load_pct": 82.0, "avg_drain_blockage_pct": 38.0, "avg_drain_capacity_m3s": 2.80, "historical_risk": "critical", "zone_flood_score": 0.940},
+        "Dadar": {"avg_drain_load_pct": 76.0, "avg_drain_blockage_pct": 28.0, "avg_drain_capacity_m3s": 3.20, "historical_risk": "high", "zone_flood_score": 0.790},
+        "Bandra": {"avg_drain_load_pct": 52.0, "avg_drain_blockage_pct": 18.0, "avg_drain_capacity_m3s": 4.50, "historical_risk": "medium", "zone_flood_score": 0.450},
+        "Colaba": {"avg_drain_load_pct": 58.0, "avg_drain_blockage_pct": 22.0, "avg_drain_capacity_m3s": 3.80, "historical_risk": "medium", "zone_flood_score": 0.510},
+        "Sion": {"avg_drain_load_pct": 80.0, "avg_drain_blockage_pct": 35.0, "avg_drain_capacity_m3s": 2.90, "historical_risk": "critical", "zone_flood_score": 0.910},
+    }
+
+    # ------------------------------------------------------------------
+    # 7. SPATIAL CITY & ZONE LOOKUP UTILITIES
     # ------------------------------------------------------------------
     @classmethod
     def get_city_domain(cls, lat: float, lon: float, location_name: str = "") -> Optional[str]:
-        """Detects whether coordinates/name fall into Kolkata, Howrah, or an Unsupported City."""
+        """Detects whether coordinates/name fall into Kolkata, Howrah, Barasat, Chennai, Delhi, or Mumbai."""
         name_upper = (location_name or "").upper()
 
         # Check explicit zone names in location string
@@ -205,20 +295,43 @@ class DatasetRepository:
         if "BARASAT" in name_upper or "CHAMPADALI" in name_upper or "KACHHARI" in name_upper or "NABAPALLY" in name_upper:
             return "BARASAT"
 
+        for c_zone in cls.CHENNAI_ZONES:
+            if c_zone.upper() in name_upper:
+                return "CHENNAI"
+        if "CHENNAI" in name_upper or "VELACHERY" in name_upper or "ADYAR" in name_upper or "TAMBARAM" in name_upper or "ANNA NAGAR" in name_upper:
+            return "CHENNAI"
+
+        for d_zone in cls.DELHI_ZONES:
+            if d_zone.upper() in name_upper:
+                return "DELHI"
+        if "DELHI" in name_upper or "ROHINI" in name_upper or "DWARKA" in name_upper or "LAJPAT NAGAR" in name_upper or "MAYUR VIHAR" in name_upper or "MINTO" in name_upper:
+            return "DELHI"
+
+        for m_zone in cls.MUMBAI_ZONES:
+            if m_zone.upper() in name_upper:
+                return "MUMBAI"
+        if "MUMBAI" in name_upper or "ANDHERI" in name_upper or "KURLA" in name_upper or "BANDRA" in name_upper or "DADAR" in name_upper or "SION" in name_upper:
+            return "MUMBAI"
+
         # Bounding box checks
-        # Howrah Bounding Box: Lat 22.50 to 22.65, Lon 88.25 to 88.355
         if 22.50 <= lat <= 22.65 and 88.25 <= lon < 88.355:
             return "HOWRAH"
 
-        # Kolkata Bounding Box: Lat 22.45 to 22.65, Lon 88.355 to 88.48
         if 22.45 <= lat <= 22.65 and 88.355 <= lon <= 88.48:
             return "KOLKATA"
 
-        # Barasat Bounding Box: Lat 22.65 to 22.80, Lon 88.40 to 88.55
         if 22.65 <= lat <= 22.80 and 88.40 <= lon <= 88.55:
             return "BARASAT"
 
-        # Unsupported city (e.g. Mumbai, Delhi, Bengaluru)
+        if 12.80 <= lat <= 13.25 and 79.90 <= lon <= 80.35:
+            return "CHENNAI"
+
+        if 28.40 <= lat <= 28.90 and 76.85 <= lon <= 77.40:
+            return "DELHI"
+
+        if 18.89 <= lat <= 19.30 and 72.75 <= lon <= 73.00:
+            return "MUMBAI"
+
         return None
 
     @classmethod
@@ -229,11 +342,28 @@ class DatasetRepository:
         if city == "BARASAT":
             return "Barasat"
 
+        if city == "CHENNAI":
+            for z in cls.CHENNAI_ZONES:
+                if z.upper() in name_upper:
+                    return z
+            return "Velachery"
+
+        if city == "DELHI":
+            for z in cls.DELHI_ZONES:
+                if z.upper() in name_upper:
+                    return z
+            return "Rohini"
+
+        if city == "MUMBAI":
+            for z in cls.MUMBAI_ZONES:
+                if z.upper() in name_upper:
+                    return z
+            return "Andheri"
+
         if city == "KOLKATA":
             for z in cls.KOLKATA_ZONES:
                 if z.upper() in name_upper:
                     return z
-            # Fallback based on longitude/latitude distance
             if lon > 88.40:
                 return "Dhapa"
             elif lon > 88.38:
@@ -264,11 +394,8 @@ class DatasetRepository:
 
     @classmethod
     def get_terrain_factor(cls, city: Optional[str], lat: float, lon: float, zone_name: Optional[str]) -> Tuple[float, float, float, bool]:
-        """Calculates normalized terrain depression score based on actual dataset elevation & slope.
-        Returns: (elevation_m, slope_pct, lowland_depression_score, low_point_flag)
-        """
+        """Calculates normalized terrain depression score based on actual dataset elevation & slope."""
         if not city:
-            # Fallback for unsupported cities (generic calculation)
             return (6.0, 1.5, 0.3, False)
 
         if city == "KOLKATA":
@@ -280,11 +407,19 @@ class DatasetRepository:
         elif city == "BARASAT":
             points = cls.BARASAT_ELEVATION_POINTS
             zones = cls.BARASAT_ZONES
+        elif city == "CHENNAI":
+            points = cls.CHENNAI_ELEVATION_POINTS
+            zones = cls.CHENNAI_ZONES
+        elif city == "DELHI":
+            points = cls.DELHI_ELEVATION_POINTS
+            zones = cls.DELHI_ZONES
+        elif city == "MUMBAI":
+            points = cls.MUMBAI_ELEVATION_POINTS
+            zones = cls.MUMBAI_ZONES
         else:
             points = []
             zones = {}
 
-        # Find nearest elevation point in dataset
         best_pt = None
         min_dist = float("inf")
 
@@ -297,7 +432,6 @@ class DatasetRepository:
                 best_pt = pt
 
         if not best_pt and points:
-            # Fallback across all city points
             for pt in points:
                 d = math.sqrt((pt["lat"] - lat) ** 2 + (pt["lon"] - lon) ** 2)
                 if d < min_dist:
@@ -314,8 +448,7 @@ class DatasetRepository:
             slope = 1.0
             is_low = False
 
-        # Lowland depression score formula: lower elevation & lower slope -> higher water accumulation score
-        depression_score = min(1.0, max(0.05, (7.0 - elev) / 4.0))
+        depression_score = min(1.0, max(0.05, (7.0 - elev) / 4.0)) if elev < 100.0 else min(1.0, max(0.05, (220.0 - elev) / 20.0))
         if is_low:
             depression_score = min(1.0, depression_score + 0.15)
 
@@ -323,9 +456,7 @@ class DatasetRepository:
 
     @classmethod
     def get_drainage_factor(cls, city: Optional[str], zone_name: Optional[str]) -> Tuple[float, float, float, float]:
-        """Calculates normalized drainage stress score based on dataset capacity, load %, and blockage %.
-        Returns: (avg_capacity_m3s, avg_load_pct, avg_blockage_pct, drainage_stress_score)
-        """
+        """Calculates normalized drainage stress score based on dataset capacity, load %, and blockage %."""
         if not city:
             return (2.0, 50.0, 15.0, 0.25)
 
@@ -335,6 +466,12 @@ class DatasetRepository:
             roads_meta = cls.HOWRAH_ROADS_TRAINING
         elif city == "BARASAT":
             roads_meta = cls.BARASAT_ROADS_TRAINING
+        elif city == "CHENNAI":
+            roads_meta = cls.CHENNAI_ROADS_TRAINING
+        elif city == "DELHI":
+            roads_meta = cls.DELHI_ROADS_TRAINING
+        elif city == "MUMBAI":
+            roads_meta = cls.MUMBAI_ROADS_TRAINING
         else:
             roads_meta = {}
 
@@ -347,15 +484,12 @@ class DatasetRepository:
         else:
             cap, load, block = 2.0, 50.0, 15.0
 
-        # Drainage stress score formula: Higher load % and higher blockage % increase stress score
         stress_score = min(1.0, max(0.1, (load * 0.5 + block * 1.5) / 100.0))
         return (cap, load, block, round(stress_score, 3))
 
     @classmethod
     def get_historical_susceptibility(cls, city: Optional[str], zone_name: Optional[str]) -> Tuple[float, int, str]:
-        """Calculates normalized historical susceptibility score from dataset event records.
-        Returns: (historical_score, event_count, depth_range_str)
-        """
+        """Calculates normalized historical susceptibility score from dataset event records."""
         if not city:
             return (0.15, 0, "NOT AVAILABLE FOR THIS AREA")
 
@@ -369,6 +503,36 @@ class DatasetRepository:
             else:
                 hist_score = 0.45
                 depth_range = "Historical frequency: Moderate (2-3 events/yr)"
+        elif city == "CHENNAI":
+            events = [e for e in cls.CHENNAI_HISTORICAL_EVENTS if not zone_name or e["zone"] == zone_name]
+            count = len(events)
+            if count > 0:
+                avg_depth = sum(e["water_depth_cm"] for e in events) / count
+                hist_score = min(1.0, round(0.4 + (count * 0.1) + (avg_depth / 100.0), 3))
+                depth_range = f"Historical avg {int(avg_depth)} cm across {count} recorded events"
+            else:
+                hist_score = 0.80
+                depth_range = "Historical risk level: HIGH (Chennai Urban Basin)"
+        elif city == "DELHI":
+            events = [e for e in cls.DELHI_HISTORICAL_EVENTS if not zone_name or e["zone"] == zone_name]
+            count = len(events)
+            if count > 0:
+                avg_depth = sum(e["water_depth_cm"] for e in events) / count
+                hist_score = min(1.0, round(0.4 + (count * 0.1) + (avg_depth / 100.0), 3))
+                depth_range = f"Historical avg {int(avg_depth)} cm across {count} recorded events"
+            else:
+                hist_score = 0.65
+                depth_range = "Historical risk level: HIGH (Delhi Drainage Network)"
+        elif city == "MUMBAI":
+            events = [e for e in cls.MUMBAI_HISTORICAL_EVENTS if not zone_name or e["zone"] == zone_name]
+            count = len(events)
+            if count > 0:
+                avg_depth = sum(e["water_depth_cm"] for e in events) / count
+                hist_score = min(1.0, round(0.45 + (count * 0.1) + (avg_depth / 100.0), 3))
+                depth_range = f"Historical avg {int(avg_depth)} cm across {count} recorded events"
+            else:
+                hist_score = 0.85
+                depth_range = "Historical risk level: CRITICAL (Mumbai Coastal Basin)"
         elif city == "BARASAT":
             events = [e for e in cls.BARASAT_HISTORICAL_EVENTS if not zone_name or e["zone"] == zone_name]
             count = len(events)
@@ -402,3 +566,105 @@ class DatasetRepository:
         elif verified_count >= 1:
             return 0.05
         return 0.0
+
+    @classmethod
+    def get_city_drains(cls, city: str) -> List[Dict[str, Any]]:
+        """Loads structured drainage dataset for a specified city domain."""
+        import os
+        import pandas as pd
+
+        city_upper = (city or "").upper()
+        if city_upper == "KOLKATA":
+            return cls.KOLKATA_DRAINS
+
+        # File mapping for CSV-based city datasets
+        file_map = {
+            "CHENNAI": "drains_chennai.csv",
+            "DELHI": "drains_delhi.csv",
+            "MUMBAI": "drains_mumbai.csv"
+        }
+
+        filename = file_map.get(city_upper)
+        if not filename:
+            # Return empty list if city has no explicit dataset
+            return []
+
+        base_dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "data"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "data"),
+            r"C:\Users\sourav\antigravity\JALDRISHTI---Urban-Flood-Digital-Twin\api\app\data",
+            r"C:\Users\sourav\antigravity\JALDRISHTI---Urban-Flood-Digital-Twin\backend\app\data"
+        ]
+
+        for bdir in base_dirs:
+            filepath = os.path.join(bdir, filename)
+            if os.path.exists(filepath):
+                try:
+                    df = pd.read_csv(filepath)
+                    return df.to_dict("records")
+                except Exception:
+                    pass
+
+        return []
+
+    @classmethod
+    def get_matching_source_record(cls, city: str, spot_name: str, zone_name: str) -> Optional[Dict[str, Any]]:
+        """Finds explicit direct source record (historical event or citizen report) matching spot or zone name."""
+        if not city:
+            return None
+
+        city_u = city.upper()
+        spot_lower = spot_name.lower()
+
+        # 1. Historical Event matching
+        events = []
+        filename = ""
+        if city_u == "HOWRAH":
+            events, filename = cls.HOWRAH_HISTORICAL_EVENTS, "HOWRAH_HISTORICAL_EVENTS.csv"
+        elif city_u == "CHENNAI":
+            events, filename = cls.CHENNAI_HISTORICAL_EVENTS, "CHENNAI_HISTORICAL_EVENTS.csv"
+        elif city_u == "DELHI":
+            events, filename = cls.DELHI_HISTORICAL_EVENTS, "DELHI_HISTORICAL_EVENTS.csv"
+        elif city_u == "MUMBAI":
+            events, filename = cls.MUMBAI_HISTORICAL_EVENTS, "MUMBAI_HISTORICAL_EVENTS.csv"
+        elif city_u == "BARASAT":
+            events, filename = cls.BARASAT_HISTORICAL_EVENTS, "BARASAT_HISTORICAL_EVENTS.csv"
+
+        for e in events:
+            loc = e.get("location", "").lower()
+            if loc in spot_lower or spot_lower in loc:
+                return {
+                    "source_file": filename,
+                    "source_record_id": e.get("event_id"),
+                    "original_location_name": e.get("location"),
+                    "original_latitude": None,
+                    "original_longitude": None,
+                    "original_depth_cm": float(e.get("water_depth_cm", 0.0)),
+                    "source_type": "HISTORICAL",
+                    "provenance": "HISTORICAL",
+                }
+
+        # 2. Citizen Report matching
+        reports = []
+        r_filename = ""
+        if city_u == "KOLKATA":
+            reports, r_filename = cls.KOLKATA_CITIZEN_REPORTS, "KOLKATA_CITIZEN_REPORTS.csv"
+        elif city_u == "HOWRAH":
+            reports, r_filename = cls.HOWRAH_CITIZEN_REPORTS, "HOWRAH_CITIZEN_REPORTS.csv"
+
+        for r in reports:
+            loc = r.get("location", "").lower()
+            if loc in spot_lower or spot_lower in loc:
+                return {
+                    "source_file": r_filename,
+                    "source_record_id": r.get("report_id"),
+                    "original_location_name": r.get("location"),
+                    "original_latitude": None,
+                    "original_longitude": None,
+                    "original_depth_cm": None,
+                    "source_type": "CITIZEN_REPORT",
+                    "provenance": "CITIZEN_REPORT",
+                }
+
+        return None
+

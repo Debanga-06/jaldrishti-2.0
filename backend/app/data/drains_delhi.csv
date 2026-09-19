@@ -1,0 +1,46 @@
+drain_id,zone,drain_type,diameter_or_width_m,depth_m,capacity_m3_per_second,current_load_percent,blockage_percent,last_cleaning_date,overflow_history_count,connected_roads,pumping_station_connected,outfall_location,responsible_department,status
+DEL-D-001,Rohini,roadside_open,0.75,1.67,2.94,63,33,2026-06-16,0,DEL-ROAD-001,TRUE,Rohini outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-002,Rohini,roadside_open,1.37,1.53,3.02,39,45,2026-06-18,1,DEL-ROAD-002,FALSE,Rohini outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-003,Rohini,box_drain,2.14,0.65,2.79,84,44,2026-07-20,6,DEL-ROAD-003,FALSE,Rohini outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-004,Rohini,stormwater_channel,0.69,1.01,0.99,41,28,2026-07-06,0,DEL-ROAD-004,FALSE,Rohini outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-005,Rohini,underground_conduit,1.70,1.05,3.04,45,7,2026-08-10,1,DEL-ROAD-005,TRUE,Rohini outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-006,Rohini,culvert,0.67,1.01,1.14,39,23,2026-07-06,2,DEL-ROAD-006,FALSE,Rohini outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-007,Rohini,box_drain,1.69,1.66,5.91,53,21,2026-06-25,2,DEL-ROAD-007,TRUE,Rohini outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-008,Rohini,roadside_open,0.70,0.69,0.72,53,40,2026-08-17,3,DEL-ROAD-008,TRUE,Rohini outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-009,Rohini,underground_conduit,1.27,1.67,3.77,77,28,2026-06-16,3,DEL-ROAD-009,FALSE,Rohini outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-010,Dwarka,underground_conduit,1.26,1.50,3.43,54,45,2026-08-10,3,DEL-ROAD-010,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-011,Dwarka,underground_conduit,1.09,1.34,3.27,42,19,2026-07-07,4,DEL-ROAD-011,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-012,Dwarka,box_drain,1.43,0.55,1.71,77,21,2026-07-09,5,DEL-ROAD-012,TRUE,Dwarka outfall channel,Delhi PWD Drainage Dept.,under_observation
+DEL-D-013,Dwarka,underground_conduit,1.06,1.73,3.18,86,4,2026-07-26,4,DEL-ROAD-013,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-014,Dwarka,underground_conduit,2.04,1.66,7.09,87,16,2026-06-21,2,DEL-ROAD-014,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-015,Dwarka,culvert,1.63,1.00,3.81,85,44,2026-07-25,5,DEL-ROAD-015,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-016,Dwarka,stormwater_channel,1.28,1.51,3.78,67,35,2026-06-25,2,DEL-ROAD-016,TRUE,Dwarka outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-017,Dwarka,roadside_open,1.42,0.63,1.80,53,13,2026-07-20,4,DEL-ROAD-017,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-018,Dwarka,roadside_open,0.83,1.57,2.87,47,5,2026-07-17,3,DEL-ROAD-018,FALSE,Dwarka outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-019,Lajpat Nagar,box_drain,0.69,1.60,2.62,62,47,2026-06-16,4,DEL-ROAD-019,TRUE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-020,Lajpat Nagar,box_drain,0.85,1.39,2.29,46,25,2026-08-14,6,DEL-ROAD-020,FALSE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-021,Lajpat Nagar,box_drain,0.76,1.05,1.47,81,44,2026-07-16,5,DEL-ROAD-021,TRUE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-022,Lajpat Nagar,roadside_open,1.34,0.55,1.50,72,39,2026-06-21,4,DEL-ROAD-022,FALSE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-023,Lajpat Nagar,culvert,1.34,0.99,2.70,76,8,2026-08-08,0,DEL-ROAD-023,TRUE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,under_observation
+DEL-D-024,Lajpat Nagar,culvert,1.41,0.86,2.40,78,23,2026-08-16,5,DEL-ROAD-024,TRUE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,under_observation
+DEL-D-025,Lajpat Nagar,stormwater_channel,0.77,1.44,1.73,78,4,2026-07-14,4,DEL-ROAD-025,TRUE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,under_observation
+DEL-D-026,Lajpat Nagar,culvert,1.02,1.37,2.59,70,30,2026-08-06,1,DEL-ROAD-026,FALSE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-027,Lajpat Nagar,stormwater_channel,1.56,1.38,3.22,51,4,2026-08-19,6,DEL-ROAD-027,FALSE,Lajpat Nagar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-028,Mayur Vihar,underground_conduit,1.13,1.04,2.67,56,11,2026-06-30,2,DEL-ROAD-028,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-029,Mayur Vihar,underground_conduit,2.07,0.74,3.03,49,16,2026-06-20,6,DEL-ROAD-029,FALSE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-030,Mayur Vihar,roadside_open,0.82,1.40,2.08,44,34,2026-07-27,3,DEL-ROAD-030,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-031,Mayur Vihar,culvert,1.23,0.93,2.67,36,10,2026-07-27,4,DEL-ROAD-031,FALSE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-032,Mayur Vihar,culvert,1.95,1.31,4.77,41,11,2026-07-16,4,DEL-ROAD-032,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-033,Mayur Vihar,stormwater_channel,1.81,0.55,2.28,39,26,2026-08-13,0,DEL-ROAD-033,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-034,Mayur Vihar,stormwater_channel,0.75,1.21,1.84,53,24,2026-07-02,6,DEL-ROAD-034,FALSE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-035,Mayur Vihar,underground_conduit,2.05,1.00,3.97,90,17,2026-06-20,5,DEL-ROAD-035,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-036,Mayur Vihar,stormwater_channel,1.86,1.37,3.82,45,36,2026-08-15,4,DEL-ROAD-036,TRUE,Mayur Vihar outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-037,Saket,culvert,1.87,0.67,2.85,37,14,2026-07-13,5,DEL-ROAD-037,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-038,Saket,culvert,1.14,0.77,2.06,86,13,2026-06-16,6,DEL-ROAD-038,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-039,Saket,culvert,0.65,1.76,1.70,72,33,2026-08-05,3,DEL-ROAD-039,TRUE,Saket outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-040,Saket,stormwater_channel,1.05,0.95,2.27,48,3,2026-07-05,1,DEL-ROAD-040,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,normal
+DEL-D-041,Saket,roadside_open,0.67,0.73,0.71,56,34,2026-06-21,5,DEL-ROAD-041,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,needs_cleaning
+DEL-D-042,Saket,culvert,0.96,0.92,1.61,73,27,2026-06-15,0,DEL-ROAD-042,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,under_observation
+DEL-D-043,Saket,stormwater_channel,1.29,1.54,3.44,92,8,2026-08-11,6,DEL-ROAD-043,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-044,Saket,roadside_open,0.96,1.27,2.73,88,8,2026-08-15,5,DEL-ROAD-044,FALSE,Saket outfall channel,Delhi PWD Drainage Dept.,critical
+DEL-D-045,Saket,roadside_open,1.30,0.88,2.62,40,37,2026-08-06,4,DEL-ROAD-045,TRUE,Saket outfall channel,Delhi PWD Drainage Dept.,needs_cleaning

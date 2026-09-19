@@ -50,10 +50,13 @@ export const SearchView: React.FC = () => {
     selectedVehicleType,
     setSelectedVehicleType,
     savedHome,
+    savedWork,
     selectedRouteIndex,
     setSelectedRouteIndex,
     activeRouteResponse,
     setActiveRouteResponse,
+    routeEvaluationData,
+    setRouteEvaluationData,
     isLiveNavActive,
     userGpsCoords,
     userSpeedKmh,
@@ -66,13 +69,12 @@ export const SearchView: React.FC = () => {
     updateLiveGpsState,
   } = useFloodStore();
 
-  const [routeEvaluationData, setRouteEvaluationData] = useState<any | null>(null);
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
-  const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [showWhyModal, setShowWhyModal] = useState<boolean>(false);
 
   const watchIdRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const vehicleOptions: { id: VehicleType; label: string; icon: React.ReactNode; clearance: string }[] = [
     { id: 'CAR', label: 'Car', icon: <Car className="w-4 h-4" />, clearance: '15 cm' },
@@ -84,27 +86,104 @@ export const SearchView: React.FC = () => {
 
   // Primary Route Calculation Action - Triggered EXCLUSIVELY by SEARCH ROUTES button
   const handleCalculateRoutes = async () => {
+    if (isEvaluating) return;
     setValidationError(null);
 
-    if (!selectedFromLocation) {
-      setValidationError('Please select a valid FROM location from search suggestions.');
-      return;
+    // Cancel any previous pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    let fromLoc = selectedFromLocation;
+    if ((!fromLoc || (searchQueryFrom.trim() && fromLoc.locality !== searchQueryFrom.trim() && fromLoc.display_name !== searchQueryFrom.trim())) && searchQueryFrom.trim()) {
+      try {
+        const results = await JaldrishtiApi.searchGeocoding(searchQueryFrom.trim());
+        if (results && results.length > 0) {
+          fromLoc = results[0];
+          setSelectedFromLocation(fromLoc);
+        }
+      } catch (e) {}
     }
 
-    if (!selectedToLocation) {
-      setValidationError('Please select a valid TO location from search suggestions.');
-      return;
+    let toLoc = selectedToLocation;
+    if ((!toLoc || (searchQueryTo.trim() && toLoc.locality !== searchQueryTo.trim() && toLoc.display_name !== searchQueryTo.trim())) && searchQueryTo.trim()) {
+      try {
+        const results = await JaldrishtiApi.searchGeocoding(searchQueryTo.trim());
+        if (results && results.length > 0) {
+          toLoc = results[0];
+          setSelectedToLocation(toLoc);
+        }
+      } catch (e) {}
     }
 
-    const oLat = selectedFromLocation.lat;
-    const oLon = selectedFromLocation.lon;
-    const dLat = selectedToLocation.lat;
-    const dLon = selectedToLocation.lon;
-    const fromName = selectedFromLocation.locality || selectedFromLocation.display_name;
-    const toName = selectedToLocation.locality || selectedToLocation.display_name;
+    if (!fromLoc) {
+      if (!searchQueryFrom.trim() && savedHome?.coordinates && savedHome.coordinates[0] !== 0) {
+        fromLoc = {
+          locality: savedHome.locality || 'Ballygunge',
+          display_name: savedHome.address || 'Ballygunge, Kolkata, West Bengal, India',
+          lat: savedHome.coordinates[0],
+          lon: savedHome.coordinates[1],
+        };
+        setSelectedFromLocation(fromLoc);
+        setSearchQueryFrom(fromLoc.locality || 'Ballygunge');
+      } else if (!searchQueryFrom.trim()) {
+        fromLoc = {
+          locality: 'Ballygunge',
+          display_name: 'Ballygunge, Kolkata, West Bengal, India',
+          lat: 22.5280,
+          lon: 88.3650,
+        };
+        setSelectedFromLocation(fromLoc);
+        setSearchQueryFrom(fromLoc.locality || 'Ballygunge');
+      } else {
+        setValidationError(`Unable to resolve location for '${searchQueryFrom}'. Please select a suggestion from the dropdown.`);
+        setIsEvaluating(false);
+        return;
+      }
+    }
+
+    if (!toLoc) {
+      if (!searchQueryTo.trim() && savedWork?.coordinates && savedWork.coordinates[0] !== 0) {
+        toLoc = {
+          locality: savedWork.locality || 'Howrah Station',
+          display_name: savedWork.address || 'Howrah Station, Howrah, West Bengal, India',
+          lat: savedWork.coordinates[0],
+          lon: savedWork.coordinates[1],
+        };
+        setSelectedToLocation(toLoc);
+        setSearchQueryTo(toLoc.locality || 'Howrah Station');
+      } else if (!searchQueryTo.trim()) {
+        toLoc = {
+          locality: 'Howrah Station',
+          display_name: 'Howrah Station, Howrah, West Bengal, India',
+          lat: 22.5835,
+          lon: 88.3426,
+        };
+        setSelectedToLocation(toLoc);
+        setSearchQueryTo(toLoc.locality || 'Howrah Station');
+      } else {
+        setValidationError(`Unable to resolve location for '${searchQueryTo}'. Please select a suggestion from the dropdown.`);
+        setIsEvaluating(false);
+        return;
+      }
+    }
+
+    const oLat = fromLoc.lat;
+    const oLon = fromLoc.lon;
+    const dLat = toLoc.lat;
+    const dLon = toLoc.lon;
+    const fromName = fromLoc.locality || fromLoc.display_name;
+    const toName = toLoc.locality || toLoc.display_name;
+
+    if (Math.abs(oLat - dLat) < 0.001 && Math.abs(oLon - dLon) < 0.001) {
+      setValidationError('Origin and Destination cannot be the same location. Please select two distinct locations (e.g. Chennai Egmore to Velachery).');
+      setIsEvaluating(false);
+      return;
+    }
 
     setIsEvaluating(true);
-    setHasSearched(true);
 
     try {
       console.log('==================================================');
@@ -120,8 +199,11 @@ export const SearchView: React.FC = () => {
         oLat,
         oLon,
         dLat,
-        dLon
+        dLon,
+        abortController.signal
       );
+
+      if (abortController.signal.aborted) return;
 
       console.log('BACKEND ROUTING RESPONSE STATUS: 200 OK');
       console.log('CANDIDATE ROUTES EVALUATED:', res?.candidate_routes?.length || 0);
@@ -187,10 +269,42 @@ export const SearchView: React.FC = () => {
     }
   };
 
+
+
   // Live Geolocation Tracking Handler
   useEffect(() => {
     if (isLiveNavActive) {
       if ('geolocation' in navigator) {
+        // Immediate single position request for initial GPS fix
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            const rawSpeed = pos.coords.speed || 0;
+            const speedKmh = Math.round(rawSpeed * 3.6);
+
+            const candidateRoutes = routeEvaluationData?.candidate_routes || [];
+            const curRoute = candidateRoutes[selectedRouteIndex] || candidateRoutes[0];
+            const distKm = curRoute ? curRoute.distance_km : 0;
+            const durMin = curRoute ? curRoute.travel_time_minutes : 0;
+
+            let warningText: string | null = null;
+            if (curRoute && curRoute.segments) {
+              const floodSeg = curRoute.segments.find((s: any) => s.predicted_water_depth_cm > 15);
+              if (floodSeg) {
+                warningText = `Flood Risk Ahead: ${floodSeg.predicted_water_depth_cm} cm water depth predicted on ${floodSeg.depth_label || 'segment'}`;
+              }
+            }
+
+            updateLiveGpsState([lat, lon], speedKmh, distKm, durMin, false, warningText);
+          },
+          (err) => {
+            console.warn('Initial live GPS position request warning:', err);
+          },
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+
+        // Continuous position watching
         watchIdRef.current = navigator.geolocation.watchPosition(
           (pos) => {
             const lat = pos.coords.latitude;
@@ -214,11 +328,7 @@ export const SearchView: React.FC = () => {
             updateLiveGpsState([lat, lon], speedKmh, distKm, durMin, false, warningText);
           },
           (err) => {
-            console.warn('Live GPS watch warning:', err);
-            const candidateRoutes = routeEvaluationData?.candidate_routes || [];
-            const curRoute = candidateRoutes[selectedRouteIndex] || candidateRoutes[0];
-            const coords = curRoute?.geometry?.coordinates?.[0] || [88.4821, 22.7214];
-            updateLiveGpsState([coords[1], coords[0]], 0, curRoute?.distance_km || 0, curRoute?.travel_time_minutes || 0, false, null);
+            console.warn('Live GPS watch position error:', err);
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
@@ -242,7 +352,49 @@ export const SearchView: React.FC = () => {
     setSelectedRouteIndex(idx);
   };
 
-  const candidateRoutes = routeEvaluationData?.candidate_routes || routeEvaluationData?.routes || [];
+  const candidateRoutes = React.useMemo(() => {
+    if (routeEvaluationData?.candidate_routes?.length) {
+      return routeEvaluationData.candidate_routes;
+    }
+    if (routeEvaluationData?.routes?.length) {
+      return routeEvaluationData.routes;
+    }
+    if (activeRouteResponse?.recommended_route) {
+      const rec = activeRouteResponse.recommended_route;
+      const primaryCandidate = {
+        route_id: rec.route_id,
+        label: rec.route_label,
+        distance_km: rec.distance_km,
+        travel_time_minutes: rec.travel_time_minutes,
+        max_water_depth_cm: rec.max_predicted_flood_depth_cm,
+        why_recommended: rec.advisory_status,
+        recommended: true,
+        is_clearance_safe: true,
+        geometry: { type: 'LineString', coordinates: rec.geometry },
+        steps: rec.steps,
+        segments: rec.segments,
+        flood_points: rec.flood_points,
+      };
+      const altCandidates = (activeRouteResponse.alternative_routes || []).map((alt: any) => ({
+        route_id: alt.route_id,
+        label: alt.route_label,
+        distance_km: alt.distance_km,
+        travel_time_minutes: alt.travel_time_minutes,
+        max_water_depth_cm: alt.max_predicted_flood_depth_cm,
+        why_recommended: alt.advisory_status,
+        recommended: false,
+        is_clearance_safe: true,
+        geometry: { type: 'LineString', coordinates: alt.geometry },
+        steps: alt.steps,
+        segments: alt.segments,
+        flood_points: alt.flood_points,
+      }));
+      return [primaryCandidate, ...altCandidates];
+    }
+    return [];
+  }, [routeEvaluationData, activeRouteResponse]);
+
+  const hasSearched = Boolean((routeEvaluationData?.candidate_routes?.length || routeEvaluationData?.routes?.length) || activeRouteResponse?.recommended_route);
   const selectedRoute = candidateRoutes[selectedRouteIndex] || candidateRoutes[0];
 
   const isMedicalActive = (consumerSearchMode === 'MEDICAL' || selectedVehicleType === 'AMBULANCE') && selectedVehicleType === 'AMBULANCE';
@@ -302,7 +454,7 @@ export const SearchView: React.FC = () => {
           {/* Location Inputs & Vehicle Controls */}
           <div className="mt-5 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
             {/* FROM */}
-            <div className="md:col-span-4 space-y-1">
+            <div id="search-from-container" className="md:col-span-4 space-y-1">
               <div className="flex items-center justify-between">
                 <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   FROM (Origin)
@@ -316,14 +468,31 @@ export const SearchView: React.FC = () => {
               <LocationSearch
                 placeholder="Search origin location (e.g. IIT Bombay, AIIMS Delhi, Park Street)..."
                 initialValue={searchQueryFrom}
-                onChangeText={(text) => setSearchQueryFrom(text)}
-                onSelectLocation={(loc: LocationSearchResult) => setSelectedFromLocation(loc)}
+                onChangeText={(text) => {
+                  setSearchQueryFrom(text);
+                  if (selectedFromLocation && text.trim() !== (selectedFromLocation.locality || selectedFromLocation.display_name)) {
+                    setSelectedFromLocation(null);
+                  }
+                }}
+                onSelectLocation={(loc: LocationSearchResult) => {
+                  setSelectedFromLocation(loc);
+                  setSearchQueryFrom(loc.locality || loc.display_name);
+                }}
+                onSubmitText={async (text) => {
+                  try {
+                    const results = await JaldrishtiApi.searchGeocoding(text);
+                    if (results && results.length > 0) {
+                      setSelectedFromLocation(results[0]);
+                      setSearchQueryFrom(results[0].locality || results[0].display_name);
+                    }
+                  } catch (e) {}
+                }}
                 isMedicalMode={isMedicalActive}
               />
             </div>
 
             {/* TO */}
-            <div className="md:col-span-4 space-y-1">
+            <div id="search-to-container" className="md:col-span-4 space-y-1">
               <div className="flex items-center justify-between">
                 <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   TO (Destination)
@@ -337,8 +506,25 @@ export const SearchView: React.FC = () => {
               <LocationSearch
                 placeholder="Search destination (e.g. KEM Hospital, Bengaluru, Jadavpur)..."
                 initialValue={searchQueryTo}
-                onChangeText={(text) => setSearchQueryTo(text)}
-                onSelectLocation={(loc: LocationSearchResult) => setSelectedToLocation(loc)}
+                onChangeText={(text) => {
+                  setSearchQueryTo(text);
+                  if (selectedToLocation && text.trim() !== (selectedToLocation.locality || selectedToLocation.display_name)) {
+                    setSelectedToLocation(null);
+                  }
+                }}
+                onSelectLocation={(loc: LocationSearchResult) => {
+                  setSelectedToLocation(loc);
+                  setSearchQueryTo(loc.locality || loc.display_name);
+                }}
+                onSubmitText={async (text) => {
+                  try {
+                    const results = await JaldrishtiApi.searchGeocoding(text);
+                    if (results && results.length > 0) {
+                      setSelectedToLocation(results[0]);
+                      setSearchQueryTo(results[0].locality || results[0].display_name);
+                    }
+                  } catch (e) {}
+                }}
                 isMedicalMode={isMedicalActive}
               />
             </div>
@@ -388,7 +574,7 @@ export const SearchView: React.FC = () => {
               {isEvaluating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Evaluating real OSRM routes...</span>
+                  <span>Calculating route and flood risk…</span>
                 </>
               ) : (
                 <>
@@ -612,34 +798,81 @@ export const SearchView: React.FC = () => {
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center space-x-2">
                     <Navigation className="w-4 h-4 text-blue-600" />
-                    <span>OSRM Turn-by-Turn Directions</span>
+                    <span>OSRM Turn-by-Turn Directions ({selectedRoute.label || 'Selected Route'})</span>
                   </h3>
-                  <span className="text-[10px] font-mono text-slate-400">
+                  <span className="text-[10px] font-mono text-slate-500 font-semibold px-2 py-0.5 bg-slate-100 rounded-md">
                     {selectedRoute.steps ? `${selectedRoute.steps.length} Steps` : 'No steps'}
                   </span>
                 </div>
 
                 {selectedRoute.steps && selectedRoute.steps.length > 0 ? (
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1 text-xs">
-                    {selectedRoute.steps.map((st: any, sIdx: number) => (
-                      <div key={sIdx} className="flex items-start space-x-3 p-2 bg-slate-50 border border-slate-100 rounded-xl">
-                        <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                          {sIdx + 1}
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1 text-xs">
+                    {selectedRoute.steps.map((st: any, sIdx: number) => {
+                      const mod = (st.maneuver_modifier || '').toLowerCase();
+                      const type = (st.maneuver_type || '').toLowerCase();
+                      const inst = (st.instruction || '').toLowerCase();
+
+                      let badge = { label: 'STRAIGHT', icon: '⬆️', color: 'bg-slate-100 text-slate-700 border-slate-200' };
+                      if (type === 'arrive' || inst.includes('arrive')) {
+                        badge = { label: 'ARRIVE', icon: '🏁', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+                      } else if (type === 'depart' || inst.includes('head')) {
+                        badge = { label: 'DEPART', icon: '🚩', color: 'bg-blue-100 text-blue-800 border-blue-300' };
+                      } else if (mod.includes('slight left') || inst.includes('slight left')) {
+                        badge = { label: 'SLIGHT LEFT', icon: '↖️', color: 'bg-sky-100 text-sky-800 border-sky-300' };
+                      } else if (mod.includes('sharp left') || inst.includes('sharp left')) {
+                        badge = { label: 'SHARP LEFT', icon: '↰', color: 'bg-indigo-100 text-indigo-900 border-indigo-300' };
+                      } else if (mod.includes('left') || inst.includes('left')) {
+                        badge = { label: 'TURN LEFT', icon: '⬅️', color: 'bg-indigo-100 text-indigo-800 border-indigo-300' };
+                      } else if (mod.includes('slight right') || inst.includes('slight right')) {
+                        badge = { label: 'SLIGHT RIGHT', icon: '↗️', color: 'bg-amber-100 text-amber-800 border-amber-300' };
+                      } else if (mod.includes('sharp right') || inst.includes('sharp right')) {
+                        badge = { label: 'SHARP RIGHT', icon: '↱', color: 'bg-indigo-100 text-indigo-900 border-indigo-300' };
+                      } else if (mod.includes('right') || inst.includes('right')) {
+                        badge = { label: 'TURN RIGHT', icon: '➡️', color: 'bg-indigo-100 text-indigo-800 border-indigo-300' };
+                      } else if (type === 'roundabout' || inst.includes('roundabout')) {
+                        badge = { label: 'ROUNDABOUT', icon: '🔄', color: 'bg-purple-100 text-purple-800 border-purple-300' };
+                      } else if (type === 'fork' || inst.includes('fork')) {
+                        badge = { label: 'FORK', icon: '🔀', color: 'bg-purple-100 text-purple-800 border-purple-300' };
+                      }
+
+                      return (
+                        <div key={sIdx} className="flex items-start space-x-2.5 p-2.5 bg-slate-50 border border-slate-100 rounded-xl hover:border-blue-200 transition-colors">
+                          <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 shadow-sm">
+                            {sIdx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <span className={`inline-flex items-center space-x-1 px-2 py-0.5 text-[10px] font-bold rounded-md border ${badge.color}`}>
+                                <span>{badge.icon}</span>
+                                <span>{badge.label}</span>
+                              </span>
+                              {st.street_name && st.street_name !== 'road' && (
+                                <span className="text-[10px] font-semibold text-slate-500 truncate max-w-[150px]">
+                                  {st.street_name}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-semibold text-slate-800 text-xs leading-snug">{st.instruction}</p>
+                            <div className="flex items-center space-x-3 text-[10px] text-slate-500 font-mono">
+                              {st.distance_meters > 0 && (
+                                <span className="font-bold text-slate-700">
+                                  📏 {st.distance_meters >= 1000 ? `${(st.distance_meters / 1000).toFixed(2)} km` : `${Math.round(st.distance_meters)} m`}
+                                </span>
+                              )}
+                              {st.duration_seconds > 0 && (
+                                <span>
+                                  ⏱️ {st.duration_seconds >= 60 ? `${Math.round(st.duration_seconds / 60)} min` : `${Math.round(st.duration_seconds)} sec`}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-slate-800">{st.instruction}</p>
-                          {st.distance_meters > 0 && (
-                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                              {st.distance_meters >= 1000 ? `${(st.distance_meters / 1000).toFixed(2)} km` : `${Math.round(st.distance_meters)} m`}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-500 font-medium">
-                    Turn-by-turn instructions unavailable.
+                    Turn-by-turn instructions unavailable for this route segment.
                   </div>
                 )}
               </div>

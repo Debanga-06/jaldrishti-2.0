@@ -74,6 +74,8 @@ class HomeAdvisoryService:
             "best_way_home": best_way_home,
             "data_provenance": {
                 "weather_state": weather.get("data_state", "LIVE"),
+                "cwc_observed_telemetry": pred_data.get("data_states", {}).get("cwc_observed_telemetry", "DATA_UNAVAILABLE"),
+                "cwc_observation_source": "CWC Ground Automated Rain Gauge Telemetry",
                 "terrain_state": "SIMULATION",
                 "drainage_state": "SIMULATION",
                 "road_network_state": "LIVE",

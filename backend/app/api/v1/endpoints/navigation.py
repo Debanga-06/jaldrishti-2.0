@@ -151,21 +151,7 @@ async def evaluate_routes_api(
         dest_name=destination,
         vehicle_type=vehicle_type,
     )
-    # Return candidate routes list compatible with DTO format
-    routes_list = []
-    for route in res.get("candidate_routes", []):
-        routes_list.append(
-            RouteOptionDTO(
-                route_id=route["route_id"],
-                label=route["label"],
-                distance_km=route["distance_km"],
-                travel_time_minutes=route["travel_time_minutes"],
-                max_water_depth_cm=route["max_water_depth_cm"],
-                flood_exposure=route["flood_exposure"],
-                why_recommended=route["why_recommended"]
-            )
-        )
-    return routes_list
+    return res
 
 
 class LocationPointDTO(BaseModel):
@@ -228,5 +214,72 @@ async def evaluate_routes_detailed_api(
         dest_name=destination,
         vehicle_type=vehicle_type,
     )
+
+
+class LocationPointFlexibleDTO(BaseModel):
+    name: str = "Location"
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    @property
+    def get_lat(self) -> float:
+        if self.lat is not None:
+            return self.lat
+        if self.latitude is not None:
+            return self.latitude
+        return 0.0
+
+    @property
+    def get_lon(self) -> float:
+        if self.lon is not None:
+            return self.lon
+        if self.longitude is not None:
+            return self.longitude
+        return 0.0
+
+
+class FloodSafeRouteRequestDTO(BaseModel):
+    from_location: LocationPointFlexibleDTO = Field(..., alias="from")
+    to_location: LocationPointFlexibleDTO = Field(..., alias="to")
+    travel_mode: Optional[str] = Field(default=None)
+    vehicle_type: Optional[str] = Field(default=None)
+    profile: Optional[str] = Field(default=None)
+    horizon_offset_hours: int = Field(default=0, ge=0, le=3)
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/flood-safe-route")
+@router.post("/routes/flood-safe")
+async def calculate_flood_safe_route_api(payload: FloodSafeRouteRequestDTO):
+    """Calculates flood-safe route using OSRM candidate routes and temporal nowcast flood risk model."""
+    v_type = "CAR"
+    if payload.travel_mode:
+        v_type = payload.travel_mode.upper()
+    elif payload.vehicle_type:
+        v_type = payload.vehicle_type.upper()
+    elif payload.profile:
+        p = payload.profile.lower()
+        if p in ("bike", "bicycle", "cyclist"):
+            v_type = "BIKE"
+        elif p in ("walk", "walking", "pedestrian"):
+            v_type = "WALK"
+        else:
+            v_type = payload.profile.upper()
+
+    return await RoutingService.evaluate_routes(
+        origin_lat=payload.from_location.get_lat,
+        origin_lon=payload.from_location.get_lon,
+        dest_lat=payload.to_location.get_lat,
+        dest_lon=payload.to_location.get_lon,
+        origin_name=payload.from_location.name,
+        dest_name=payload.to_location.name,
+        vehicle_type=v_type,
+        horizon_offset_hours=payload.horizon_offset_hours,
+    )
+
 
 

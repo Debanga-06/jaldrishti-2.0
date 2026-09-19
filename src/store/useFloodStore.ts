@@ -82,6 +82,12 @@ interface FloodStoreState {
   playbackSpeed: number; // 1x, 2x, 5x
   operationMode: OperationMode;
 
+  // 0–3h Urban Flood Nowcast Layer
+  nowcastSelectedOffset: number; // 0, 1, 2, 3
+  nowcastData: any | null;
+  setNowcastOffset: (offset: number) => void;
+  setNowcastData: (data: any) => void;
+
   // Selected Location for Deep Explainability Panel
   selectedLocationId: string | null;
   selectedHotspot: FloodHotspot | null;
@@ -108,8 +114,10 @@ interface FloodStoreState {
   routingModalOpen: boolean;
   selectedVehicleType: VehicleType;
   originCoords: [number, number]; // [lat, lon]
-  destinationCoords: [number, number]; // [lat, lon]
   activeRouteResponse: SafeRouteResponse | null;
+  setActiveRouteResponse: (res: SafeRouteResponse | null) => void;
+  routeEvaluationData: any | null;
+  setRouteEvaluationData: (data: any | null) => void;
   selectedRouteIndex: number;
   setSelectedRouteIndex: (idx: number) => void;
   isCalculatingRoute: boolean;
@@ -176,6 +184,8 @@ interface FloodStoreState {
   setOriginCoords: (coords: [number, number]) => void;
   setDestinationCoords: (coords: [number, number]) => void;
   setActiveRouteResponse: (route: SafeRouteResponse | null) => void;
+  routeEvaluationData: any | null;
+  setRouteEvaluationData: (data: any | null) => void;
   setIsCalculatingRoute: (loading: boolean) => void;
 
   setLeftPanelOpen: (open: boolean) => void;
@@ -635,6 +645,9 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   playbackSpeed: 1,
   operationMode: 'SIMULATION',
 
+  nowcastSelectedOffset: 0,
+  nowcastData: null,
+
   selectedLocationId: 'road_102',
   selectedHotspot: null,
   selectedInfraId: 'INFRA-HOSP-01',
@@ -677,6 +690,8 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   originCoords: [22.7195, 88.4815],
   destinationCoords: [22.7265, 88.4785],
   activeRouteResponse: null,
+  routeEvaluationData: null,
+  setRouteEvaluationData: (data: any | null) => set({ routeEvaluationData: data }),
   selectedRouteIndex: 0,
   setSelectedRouteIndex: (idx: number) => set({ selectedRouteIndex: idx }),
   isCalculatingRoute: false,
@@ -1046,26 +1061,40 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
     }
   },
 
-  setTimestep: (step: ForecastTimestep) => set({ currentTimestep: step }),
+  setTimestep: (step: ForecastTimestep) => {
+    let offset = 0;
+    if (step >= 150) offset = 3;
+    else if (step >= 90) offset = 2;
+    else if (step >= 45) offset = 1;
+    else offset = 0;
+    set({ currentTimestep: step, nowcastSelectedOffset: offset });
+  },
   nextTimestep: () => {
-    const { currentTimestep } = get();
+    const { currentTimestep, setTimestep } = get();
     const idx = FORECAST_TIMESTEPS.indexOf(currentTimestep);
     if (idx < FORECAST_TIMESTEPS.length - 1) {
-      set({ currentTimestep: FORECAST_TIMESTEPS[idx + 1] });
+      setTimestep(FORECAST_TIMESTEPS[idx + 1]);
     } else {
-      set({ currentTimestep: FORECAST_TIMESTEPS[0] });
+      setTimestep(FORECAST_TIMESTEPS[0]);
     }
   },
   prevTimestep: () => {
-    const { currentTimestep } = get();
+    const { currentTimestep, setTimestep } = get();
     const idx = FORECAST_TIMESTEPS.indexOf(currentTimestep);
     if (idx > 0) {
-      set({ currentTimestep: FORECAST_TIMESTEPS[idx - 1] });
+      setTimestep(FORECAST_TIMESTEPS[idx - 1]);
     }
   },
   togglePlay: () => set((state: FloodStoreState) => ({ isPlaying: !state.isPlaying })),
   setPlaybackSpeed: (speed: number) => set({ playbackSpeed: speed }),
   setOperationMode: (mode: OperationMode) => set({ operationMode: mode }),
+
+  setNowcastOffset: (offset: number) => {
+    const stepMap: Record<number, ForecastTimestep> = { 0: 0, 1: 60, 2: 120, 3: 180 };
+    const step = stepMap[offset] ?? 0;
+    set({ nowcastSelectedOffset: offset, currentTimestep: step });
+  },
+  setNowcastData: (data: any) => set({ nowcastData: data }),
 
   setSelectedLocationId: (id: string | null) =>
     set({
@@ -1510,3 +1539,8 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
     api.toggleReplyReaction(feedbackId, replyId, 'DISLIKE').catch(() => {});
   },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).useFloodStore = useFloodStore;
+}
+

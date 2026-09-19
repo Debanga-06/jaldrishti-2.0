@@ -1,0 +1,4 @@
+SlNo,Station,Agency,State LGD Code,State,District LGD Code,District,Tehsil,Block,Village,River,Basin,Tributary,Subtributary,SubSubtributary,Local River,Latitude,Longitude,Data Acquisition Time,Telemetry Hourly Rainfall (mm)
+1,Delhi Railway Bridge,CWC,7,Delhi,80,NORTH,MODEL TOWN,-,-,Ganga,Ganga,Yamuna,-,-,Yamuna,28.66250000,77.24888889,23-08-2026 10:00,0.5
+2,Delhi Railway Bridge,CWC,7,Delhi,80,NORTH,MODEL TOWN,-,-,Ganga,Ganga,Yamuna,-,-,Yamuna,28.66250000,77.24888889,01-09-2026 03:00,128
+3,Delhi Railway Bridge,CWC,7,Delhi,80,NORTH,MODEL TOWN,-,-,Ganga,Ganga,Yamuna,-,-,Yamuna,28.66250000,77.24888889,01-09-2026 04:00,128

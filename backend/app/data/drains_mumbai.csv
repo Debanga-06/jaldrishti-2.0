@@ -1,0 +1,46 @@
+drain_id,zone,drain_type,diameter_or_width_m,depth_m,capacity_m3_per_second,current_load_percent,blockage_percent,last_cleaning_date,overflow_history_count,connected_roads,pumping_station_connected,outfall_location,responsible_department,status
+MUM-D-001,Andheri,roadside_open,1.57,1.76,5.74,60,32,2026-06-29,3,MUM-ROAD-001,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-002,Andheri,underground_conduit,1.03,1.28,2.33,66,16,2026-07-28,3,MUM-ROAD-002,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-003,Andheri,roadside_open,1.89,1.39,5.51,76,22,2026-07-06,4,MUM-ROAD-003,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-004,Andheri,underground_conduit,1.23,1.77,4.47,84,47,2026-06-15,3,MUM-ROAD-004,TRUE,Andheri outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-005,Andheri,box_drain,1.25,0.99,2.83,88,16,2026-07-22,6,MUM-ROAD-005,TRUE,Andheri outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-006,Andheri,roadside_open,2.04,1.06,4.19,39,37,2026-06-30,3,MUM-ROAD-006,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-007,Andheri,underground_conduit,1.46,1.57,4.98,73,39,2026-06-29,5,MUM-ROAD-007,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-008,Andheri,culvert,2.04,1.57,7.53,77,25,2026-06-29,6,MUM-ROAD-008,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-009,Andheri,stormwater_channel,1.29,1.46,4.01,67,22,2026-07-28,4,MUM-ROAD-009,FALSE,Andheri outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-010,Kurla,stormwater_channel,0.88,0.63,0.80,87,23,2026-06-16,1,MUM-ROAD-010,TRUE,Kurla outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-011,Kurla,stormwater_channel,1.30,1.68,4.16,48,26,2026-07-08,0,MUM-ROAD-011,FALSE,Kurla outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-012,Kurla,box_drain,1.03,1.17,2.39,48,28,2026-07-19,6,MUM-ROAD-012,FALSE,Kurla outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-013,Kurla,underground_conduit,1.07,1.63,2.75,44,10,2026-07-03,6,MUM-ROAD-013,TRUE,Kurla outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-014,Kurla,roadside_open,1.35,0.91,2.29,56,33,2026-06-18,3,MUM-ROAD-014,TRUE,Kurla outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-015,Kurla,box_drain,1.63,1.28,3.30,79,6,2026-07-05,0,MUM-ROAD-015,FALSE,Kurla outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-016,Kurla,box_drain,1.46,1.67,5.45,65,38,2026-08-09,2,MUM-ROAD-016,TRUE,Kurla outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-017,Kurla,roadside_open,1.00,1.48,2.23,63,16,2026-08-05,5,MUM-ROAD-017,FALSE,Kurla outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-018,Kurla,roadside_open,0.89,1.57,3.14,75,41,2026-08-11,4,MUM-ROAD-018,TRUE,Kurla outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-019,Dadar,underground_conduit,0.83,0.92,1.31,76,32,2026-08-14,2,MUM-ROAD-019,FALSE,Dadar outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-020,Dadar,underground_conduit,0.87,0.75,1.36,70,39,2026-07-30,5,MUM-ROAD-020,FALSE,Dadar outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-021,Dadar,roadside_open,0.95,0.74,1.60,81,4,2026-07-05,5,MUM-ROAD-021,TRUE,Dadar outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-022,Dadar,underground_conduit,0.78,1.08,1.83,88,46,2026-06-20,2,MUM-ROAD-022,FALSE,Dadar outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-023,Dadar,roadside_open,1.51,1.79,6.37,92,39,2026-07-30,2,MUM-ROAD-023,FALSE,Dadar outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-024,Dadar,underground_conduit,2.14,0.78,3.95,85,20,2026-06-18,1,MUM-ROAD-024,TRUE,Dadar outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-025,Dadar,box_drain,1.77,1.51,4.96,92,31,2026-07-14,4,MUM-ROAD-025,FALSE,Dadar outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-026,Dadar,roadside_open,2.00,0.58,2.33,92,16,2026-07-14,0,MUM-ROAD-026,TRUE,Dadar outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-027,Dadar,stormwater_channel,1.63,1.59,5.83,44,12,2026-08-11,3,MUM-ROAD-027,TRUE,Dadar outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-028,Sion,culvert,0.76,1.50,1.88,59,37,2026-07-14,3,MUM-ROAD-028,TRUE,Sion outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-029,Sion,roadside_open,0.82,0.58,0.98,63,7,2026-08-16,1,MUM-ROAD-029,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-030,Sion,underground_conduit,1.55,1.26,3.76,62,36,2026-07-15,5,MUM-ROAD-030,TRUE,Sion outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-031,Sion,roadside_open,1.85,1.62,4.45,78,20,2026-07-29,4,MUM-ROAD-031,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-032,Sion,underground_conduit,1.54,0.87,3.03,40,43,2026-08-11,3,MUM-ROAD-032,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-033,Sion,underground_conduit,1.20,1.38,3.00,43,45,2026-07-10,4,MUM-ROAD-033,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-034,Sion,culvert,0.82,1.22,2.29,37,37,2026-06-16,0,MUM-ROAD-034,TRUE,Sion outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-035,Sion,stormwater_channel,1.51,1.52,4.85,37,29,2026-08-19,1,MUM-ROAD-035,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-036,Sion,stormwater_channel,1.25,0.80,2.32,71,35,2026-06-15,1,MUM-ROAD-036,FALSE,Sion outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-037,Navi Mumbai,stormwater_channel,0.85,1.41,2.59,86,21,2026-07-23,6,MUM-ROAD-037,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-038,Navi Mumbai,culvert,1.11,0.73,1.87,59,23,2026-06-25,4,MUM-ROAD-038,TRUE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-039,Navi Mumbai,roadside_open,1.97,1.09,5.05,77,7,2026-06-23,4,MUM-ROAD-039,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-040,Navi Mumbai,culvert,2.09,0.77,3.77,87,27,2026-07-06,5,MUM-ROAD-040,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,critical
+MUM-D-041,Navi Mumbai,stormwater_channel,0.98,1.18,2.36,50,28,2026-08-19,1,MUM-ROAD-041,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-042,Navi Mumbai,box_drain,1.03,1.72,3.28,48,38,2026-08-19,6,MUM-ROAD-042,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning
+MUM-D-043,Navi Mumbai,roadside_open,1.49,1.43,4.66,35,8,2026-06-16,6,MUM-ROAD-043,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,normal
+MUM-D-044,Navi Mumbai,roadside_open,1.46,1.77,4.63,81,16,2026-06-29,3,MUM-ROAD-044,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,under_observation
+MUM-D-045,Navi Mumbai,stormwater_channel,1.91,1.67,6.67,39,37,2026-07-06,5,MUM-ROAD-045,FALSE,Navi Mumbai outfall channel,BMC Storm Water Drainage Dept.,needs_cleaning

@@ -106,122 +106,64 @@ class GeocodingService:
       }
     ]
 
+_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+def get_geocoding_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(2.5, connect=1.5),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        )
+    return _HTTP_CLIENT
+
+
+class GeocodingService:
+    NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+    NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
     PHOTON_SEARCH_URL = "https://photon.komoot.io/api/"
+
+    GEOCODE_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+
+    @classmethod
+    def warm_cache(cls):
+        pass
 
     @classmethod
     async def search_address(cls, query: str) -> List[Dict[str, Any]]:
-        """Search address suggestions using Photon & Nominatim APIs for any Pan-India location."""
+        """Search address suggestions using live Photon (primary) & Nominatim (fallback) OpenStreetMap APIs."""
         if not query or len(query.strip()) < 2:
             return []
 
         cleaned = query.strip()
+        cache_key = cleaned.lower()
+        if cache_key in cls.GEOCODE_CACHE:
+            return cls.GEOCODE_CACHE[cache_key]
+        headers_photon = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        headers_nominatim = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"}
+        client = get_geocoding_client()
 
-        headers = {"User-Agent": "JALDRISHTI-Urban-Flood-Digital-Twin/2.0"}
-        # 1. Primary: Photon API (High performance OpenStreetMap search with Pan-India location bias)
+        # Step 1: Try Photon primary search (returns full live list from OSM)
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
-                res = await client.get(
-                    cls.PHOTON_SEARCH_URL,
-                    params={"q": cleaned, "limit": 10, "lat": 20.5937, "lon": 78.9629},
-                    headers=headers
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    features = data.get("features", [])
-                    if features:
-                        parsed = []
-                        for feat in features:
-                            p = feat.get("properties", {})
-                            coords = feat.get("geometry", {}).get("coordinates", [0.0, 0.0])
-                            lon, lat = float(coords[0]), float(coords[1])
-                            name = p.get("name") or p.get("street") or cleaned
-                            city = p.get("city") or p.get("town") or p.get("village") or p.get("hamlet") or p.get("suburb") or p.get("district") or ""
-                            state = p.get("state", "")
-                            country = p.get("country", "India")
-                            
-                            is_india = country.lower() == "india" or (68.0 <= lon <= 98.0 and 6.0 <= lat <= 38.0)
-                            
-                            parts = [pt for pt in [name, city, p.get("district") or p.get("county"), state, country] if pt]
-                            display_name = ", ".join(parts)
-                            locality = f"{name}, {city}" if city else name
-
-                            category = p.get("osm_key") or p.get("type") or p.get("category") or "place"
-                            place_type = p.get("osm_value") or p.get("type") or "location"
-
-                            parsed.append({
-                                "name": name,
-                                "display_name": display_name,
-                                "locality": locality,
-                                "address": name,
-                                "lat": lat,
-                                "lon": lon,
-                                "type": place_type,
-                                "category": category,
-                                "district": p.get("district") or p.get("county") or city or "District",
-                                "state": state or "State",
-                                "country": country,
-                                "source": "NOMINATIM_OSM",
-                                "is_india": is_india,
-                            })
-                        
-                        # Prioritize Indian results first
-                        parsed.sort(key=lambda x: not x["is_india"])
-                        if parsed:
-                            return parsed
-        except Exception as e:
+            photon_results = await cls.fetch_photon(client, cleaned, headers_photon)
+            if photon_results:
+                cls.GEOCODE_CACHE[cache_key] = photon_results
+                return photon_results
+        except Exception:
             pass
 
-        # 2. Secondary: Nominatim REST API
+        # Step 2: Fallback to Nominatim ONLY if Photon returns empty or fails
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
-                params = {
-                    "q": cleaned,
-                    "format": "json",
-                    "addressdetails": 1,
-                    "limit": 8,
-                    "countrycodes": "in"
-                }
-                headers = {"User-Agent": "JALDRISHTI-Urban-Flood-Digital-Twin/2.0"}
-                response = await client.get(cls.NOMINATIM_SEARCH_URL, params=params, headers=headers)
-                if response.status_code == 200:
-                    results = response.json()
-                    parsed = []
-                    for item in results:
-                        addr = item.get("address", {})
-                        locality = (
-                            addr.get("village")
-                            or addr.get("hamlet")
-                            or addr.get("suburb")
-                            or addr.get("neighbourhood")
-                            or addr.get("town")
-                            or addr.get("city_district")
-                            or addr.get("city")
-                            or addr.get("county")
-                            or addr.get("state_district")
-                            or "Local Area"
-                        )
-                        state = addr.get("state", "State")
-                        district = addr.get("state_district") or addr.get("county") or "District"
-                        parsed.append({
-                            "display_name": item.get("display_name"),
-                            "locality": f"{locality}, {state}" if state != "State" else locality,
-                            "address": item.get("display_name", "").split(",")[0],
-                            "lat": float(item.get("lat")),
-                            "lon": float(item.get("lon")),
-                            "district": district,
-                            "state": state,
-                            "country": addr.get("country", "India"),
-                            "source": "NOMINATIM_OSM"
-                        })
-                    if parsed:
-                        return parsed
-        except Exception as e:
+            nominatim_results = await cls.fetch_nominatim(client, cleaned, headers_nominatim)
+            if nominatim_results:
+                cls.GEOCODE_CACHE[cache_key] = nominatim_results
+                return nominatim_results
+        except Exception:
             pass
 
-        # Fallback offline matching
-        q_lower = cleaned.lower()
-        matched = [loc for loc in cls.OFFLINE_LOCATIONS if q_lower in loc["display_name"].lower() or q_lower in loc["locality"].lower()]
-        return matched
+        return []
+
 
     @classmethod
     async def reverse_geocode(cls, lat: float, lon: float) -> Dict[str, Any]:
@@ -268,3 +210,5 @@ class GeocodingService:
             "country": "India",
             "location_source": "GPS"
         }
+
+GeocodingService.warm_cache()

@@ -129,11 +129,34 @@ export const PredictionProvenanceModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 4. Rainfall Source */}
+                {/* 4. Rainfall Doppler Radar, CWC Observed Telemetry & Forecast Source */}
                 <div className="grid grid-cols-3 p-3.5">
-                  <span className="text-slate-400">Rainfall Source</span>
-                  <div className="col-span-2 text-slate-200">
-                    {provenance.rainfall_source}
+                  <span className="text-slate-400">Doppler Radar</span>
+                  <div className="col-span-2 text-purple-300 font-bold flex items-center space-x-2">
+                    <span className="px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[10px]">
+                      OBSERVED • DWR RADAR
+                    </span>
+                    <span>{provenance.radar_observation_source || "IMD Doppler Weather Radar Network"}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 p-3.5">
+                  <span className="text-slate-400">Observed Telemetry</span>
+                  <div className="col-span-2 text-cyan-300 font-bold flex items-center space-x-2">
+                    <span className="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px]">
+                      OBSERVED • CWC ARG
+                    </span>
+                    <span>{provenance.observed_rainfall_source || "CWC Ground Automated Rain Gauge Telemetry"}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 p-3.5">
+                  <span className="text-slate-400">Weather Forecast</span>
+                  <div className="col-span-2 text-blue-300 font-bold flex items-center space-x-2">
+                    <span className="px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 text-[10px]">
+                      FORECAST • Open-Meteo
+                    </span>
+                    <span>{provenance.rainfall_source || "Open-Meteo High-Resolution NWP Forecast"}</span>
                   </div>
                 </div>
 

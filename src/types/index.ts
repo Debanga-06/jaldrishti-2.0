@@ -355,6 +355,32 @@ export interface ModelHealthTelemetry {
   confidence_calibration_score: number;
 }
 
+export interface CWCObservedStation {
+  station_name: string;
+  latitude: number;
+  longitude: number;
+  district?: string;
+  basin?: string;
+  river?: string;
+  observed_at?: string;
+  rainfall_mm: number;
+  data_state: 'OBSERVED' | 'STALE' | 'DATA_UNAVAILABLE';
+}
+
+export interface CWCObservedRainfallContext {
+  source_type: 'OBSERVED';
+  source_name: string;
+  short_label: string;
+  source_file?: string;
+  data_state: 'OBSERVED' | 'STALE' | 'DATA_UNAVAILABLE';
+  city?: string;
+  latest_observed_at?: string;
+  mean_rainfall_mm?: number;
+  max_rainfall_mm?: number;
+  total_stations_count?: number;
+  stations?: CWCObservedStation[];
+}
+
 // ==========================================
 // 5. PREDICTION PROVENANCE
 // ==========================================
@@ -363,6 +389,10 @@ export interface PredictionProvenanceData {
   generated_at: string;
   valid_for: string;
   rainfall_source: string;
+  observed_rainfall_source?: string;
+  observed_rainfall_state?: string;
+  cwc_telemetry_station?: string;
+  cwc_observed_at?: string;
   terrain_dataset: string;
   drainage_dataset: string;
   model_version: string;
@@ -459,8 +489,6 @@ export interface HospitalAccessNode {
   emergencyPhone: string;
 }
 
-}
-
 export interface LocationSearchResult {
   display_name: string;
   locality: string;
@@ -499,3 +527,256 @@ export interface CommunityFeedback {
   dislikedBy?: string[];
   replies: CommunityFeedbackReply[];
 }
+
+export interface RadarGridCell {
+  cell_id: string;
+  latitude: number;
+  longitude: number;
+  reflectivity_dbz: number;
+  rainfall_rate_mm_h: number;
+  provenance: string;
+}
+
+export interface RadarRainfallContext {
+  source_type: string;
+  source_name: string;
+  short_label: string;
+  full_source_label: string;
+  station_id?: string;
+  data_state: 'LIVE' | 'OBSERVED' | 'STALE' | 'DATA_UNAVAILABLE' | 'DEGRADED';
+  city?: string;
+  observed_at?: string | null;
+  age_minutes?: number | null;
+  reason?: string;
+  mean_rainfall_mm_h: number;
+  max_rainfall_mm_h: number;
+  max_dbz: number;
+  optical_flow_vector?: {
+    u_kmh: number;
+    v_kmh: number;
+    bearing_deg: number;
+  };
+  total_grid_cells: number;
+  rainfall_grid?: RadarGridCell[];
+}
+
+export interface RadarNowcastStep {
+  offset_hours: number;
+  label: string;
+  timestamp: string;
+  rainfall_intensity_mm_h: number;
+  reflectivity_dbz: number;
+  source_type: string;
+  source_label: string;
+  provenance_label: string;
+  extrapolation_method: string;
+}
+
+export interface RadarResponse {
+  status: string;
+  radar_telemetry: RadarRainfallContext;
+  nowcast_steps: RadarNowcastStep[];
+}
+
+export interface SurfaceFlowCell {
+  cell_id: string;
+  row: number;
+  col: number;
+  latitude: number;
+  longitude: number;
+  elevation_m: number;
+  slope_percent: number;
+  is_lowland_sink: boolean;
+  flow_direction: string;
+  rainfall_intensity_mm_h: number;
+  rainfall_volume_m3: number;
+  inflow_volume_m3: number;
+  outflow_volume_m3: number;
+  accumulated_volume_m3: number;
+  water_depth_cm: number;
+  neighbor_cell_ids: string[];
+}
+
+export interface SurfaceFlowResponse {
+  status: string;
+  horizon: string;
+  timestamp: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    city_domain: string;
+    matched_zone: string;
+  };
+  provenance: {
+    rainfall_source: string;
+    rainfall_provenance_badge: string;
+    terrain_dataset: string;
+    surface_model: string;
+    flow_routing_algorithm: string;
+  };
+  physics_metrics: {
+    cell_side_meters: number;
+    cell_area_sq_m: number;
+    rainfall_intensity_mm_h: number;
+    rainfall_depth_metres: number;
+    total_domain_rainfall_volume_m3: number;
+    total_domain_accumulated_volume_m3: number;
+    mass_conservation_status: string;
+  };
+  road_waterlogging_summary: Array<{
+    road_name: string;
+    max_predicted_depth_cm: number;
+    avg_predicted_depth_cm: number;
+    risk_level: string;
+    status: string;
+  }>;
+  total_grid_cells: number;
+  surface_grid: SurfaceFlowCell[];
+}
+
+export interface DrainageNode {
+  node_id: string;
+  latitude: number;
+  longitude: number;
+  elevation_m: number;
+  node_type: 'INLET' | 'MANHOLE' | 'OUTFALL' | 'PUMPING_STATION';
+  zone?: string;
+  connected_road?: string;
+  status: string;
+}
+
+export interface DrainageEdge {
+  edge_id: string;
+  from_node: string;
+  to_node: string;
+  drain_type: string;
+  diameter_or_width_m: number;
+  depth_m: number;
+  length_m: number;
+  nominal_capacity_m3_s: number;
+  blockage_pct: number;
+  blockage_status: string;
+  effective_capacity_m3_s: number;
+  is_assumed_parameters: boolean;
+  status: string;
+  flow_m3_s: number;
+  capacity_utilization: number;
+  overcapacity: boolean;
+  surcharge_m3: number;
+  backflow_occurred: boolean;
+}
+
+export interface DrainageRoadSummary {
+  road_name: string;
+  max_predicted_depth_cm: number;
+  avg_predicted_depth_cm: number;
+  drainage_node_id: string;
+  drainage_type: string;
+  capacity_utilization: number;
+  overcapacity: boolean;
+  surcharge: boolean;
+  backflow: boolean;
+  blockage_pct: number;
+  blockage_status: string;
+  risk_level: string;
+  status: string;
+}
+
+export interface DrainageHydraulicsResponse {
+  status: string;
+  horizon: string;
+  timestamp: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    city_domain: string;
+    matched_zone: string;
+  };
+  provenance: {
+    rainfall_source: string;
+    rainfall_provenance_badge: string;
+    terrain_dataset: string;
+    surface_model: string;
+    drainage_model: string;
+    hydraulic_assumptions_badge: string;
+    blockage_badge: string;
+  };
+  graph_summary: {
+    total_nodes: number;
+    total_edges: number;
+    total_drainage_inflow_m3: number;
+    total_drainage_outflow_m3: number;
+    total_surcharge_backflow_m3: number;
+    surcharged_nodes_count: number;
+    max_association_distance_m: number;
+    coupled_surface_cells_count: number;
+  };
+  mass_conservation: {
+    initial_storage_m3: number;
+    rainfall_volume_m3: number;
+    drainage_inflow_m3: number;
+    drainage_outflow_m3: number;
+    backflow_volume_m3: number;
+    remaining_surface_storage_m3: number;
+    mass_balance_residual_m3: number;
+    mass_conservation_status: string;
+  };
+  nodes: DrainageNode[];
+  edges: DrainageEdge[];
+  road_waterlogging_summary: DrainageRoadSummary[];
+  surface_grid: Array<SurfaceFlowCell & { backflow_volume_m3?: number; drainage_node_associated?: string }>;
+}
+
+export interface StreetProjectionRecord {
+  road_name: string;
+  max_predicted_depth_cm: number;
+  avg_predicted_depth_cm: number;
+  risk_level: string;
+  status: string;
+  drainage_node_id: string;
+  drainage_type: string;
+  capacity_utilization: number;
+  overcapacity: boolean;
+  surcharge: boolean;
+  backflow: boolean;
+  blockage_pct: number;
+  blockage_status: string;
+  data_state: string;
+  horizon: string;
+}
+
+export interface GisDashboardResponse {
+  status: string;
+  horizon: string;
+  timestamp: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    city_domain: string;
+    matched_zone: string;
+  };
+  rainfall: {
+    source: string;
+    provenance_badge: string;
+    intensity_mm_h: number;
+  };
+  surface_flow: {
+    total_grid_cells: number;
+    surface_model: string;
+    surface_grid: SurfaceFlowCell[];
+  };
+  drainage_hydraulics: {
+    drainage_model: string;
+    graph_summary: any;
+    mass_conservation: any;
+    nodes: DrainageNode[];
+    edges: DrainageEdge[];
+  };
+  street_projections: StreetProjectionRecord[];
+  provenance: Record<string, string>;
+}
+
+

@@ -63,11 +63,12 @@ class RoutingService:
         origin_name: str = "Origin",
         dest_name: str = "Destination",
         vehicle_type: str = "CAR",
+        horizon_offset_hours: int = 0,
     ) -> Dict[str, Any]:
         """Calculates authentic Pan-India candidate routes and evaluates flood risk segment by segment concurrently."""
         
         v_upper = vehicle_type.upper()
-        cache_key = f"{round(origin_lat, 5)}_{round(origin_lon, 5)}_{round(dest_lat, 5)}_{round(dest_lon, 5)}_{v_upper}"
+        cache_key = f"{round(origin_lat, 5)}_{round(origin_lon, 5)}_{round(dest_lat, 5)}_{round(dest_lon, 5)}_{v_upper}_{horizon_offset_hours}"
         now = time.time()
 
         # Check short-lived TTL cache
@@ -83,16 +84,18 @@ class RoutingService:
 
         if not raw_routes:
             empty_res = {
-                "status": "DATA_UNAVAILABLE",
+                "status": "NO_SAFE_ROUTE",
                 "origin": {"latitude": origin_lat, "longitude": origin_lon, "name": origin_name},
                 "destination": {"latitude": dest_lat, "longitude": dest_lon, "name": dest_name},
+                "travel_mode": vehicle_type,
                 "vehicle_type": vehicle_type,
+                "horizon_offset_hours": horizon_offset_hours,
                 "vehicle_clearance_limit_cm": clearance_limit,
                 "routes_evaluated_count": 0,
                 "candidate_routes": [],
                 "routes": [],
                 "recommended_route_id": None,
-                "message": "No routes available",
+                "message": f"No routes available for {v_upper} at T+{horizon_offset_hours}h.",
             }
             return empty_res
 
@@ -108,7 +111,9 @@ class RoutingService:
                 "status": "DATA_INVALID",
                 "origin": {"latitude": origin_lat, "longitude": origin_lon, "name": origin_name},
                 "destination": {"latitude": dest_lat, "longitude": dest_lon, "name": dest_name},
+                "travel_mode": vehicle_type,
                 "vehicle_type": vehicle_type,
+                "horizon_offset_hours": horizon_offset_hours,
                 "vehicle_clearance_limit_cm": clearance_limit,
                 "routes_evaluated_count": 0,
                 "candidate_routes": [],
@@ -121,7 +126,7 @@ class RoutingService:
         primary_geometry = valid_raw_routes[0].get("route", {}).get("geometry", {}).get("coordinates", [])
         if primary_geometry:
             spatial_prediction_points, weather_data_state = await FloodPredictionService.get_spatial_prediction_points_for_route(
-                primary_geometry, origin_lat, origin_lon, dest_lat, dest_lon
+                primary_geometry, origin_lat, origin_lon, dest_lat, dest_lon, horizon_offset_hours=horizon_offset_hours
             )
         else:
             waypoints = [(origin_lat, origin_lon), (dest_lat, dest_lon)]
@@ -279,19 +284,36 @@ class RoutingService:
                     r["label"] = f"ALTERNATIVE ROUTE {idx} ({v_upper})"
                     r["why_recommended"] = f"LOW FLOOD EXPOSURE — MODEL PREDICTION | Alternative genuine corridor ({r['distance_km']} km, {r['travel_time_minutes']} min) — CLEAR."
 
-        all_unsafe = all(not r.get("is_clearance_safe", True) for r in evaluated_routes)
+        all_unsafe = all(
+            not r.get("is_clearance_safe", True)
+            or r.get("closed_segment_count", 0) > 0
+            or r.get("max_water_depth_cm", 0.0) > clearance_limit
+            for r in evaluated_routes
+        )
+
+        overall_status = "NO_SAFE_ROUTE" if all_unsafe else "SUCCESS"
+        recommended_id = None if all_unsafe else (evaluated_routes[0]["route_id"] if evaluated_routes else None)
         clearance_global_warning = "No clearance-safe route is currently identified. Please verify conditions directly with emergency authorities." if all_unsafe else None
+        msg = (
+            f"No route currently satisfies the configured flood accessibility constraints for {v_upper} at T+{horizon_offset_hours}h."
+            if all_unsafe
+            else "Flood-safe route identified successfully."
+        )
 
         res = {
+            "status": overall_status,
             "origin": {"latitude": origin_lat, "longitude": origin_lon, "name": origin_name},
             "destination": {"latitude": dest_lat, "longitude": dest_lon, "name": dest_name},
+            "travel_mode": vehicle_type,
             "vehicle_type": vehicle_type,
+            "horizon_offset_hours": horizon_offset_hours,
             "vehicle_clearance_limit_cm": clearance_limit,
             "routes_evaluated_count": len(evaluated_routes),
             "candidate_routes": evaluated_routes,
             "routes": evaluated_routes,
-            "recommended_route_id": evaluated_routes[0]["route_id"] if evaluated_routes else None,
+            "recommended_route_id": recommended_id,
             "clearance_global_warning": clearance_global_warning,
+            "message": msg,
         }
 
         # Store in cache
@@ -412,46 +434,124 @@ class RoutingService:
         """Extracts and formats turn-by-turn navigation instructions from OSRM leg steps."""
         steps_out = []
         legs = route_data.get("legs", [])
-        if not legs:
+
+        if legs:
+            for leg in legs:
+                for s in leg.get("steps", []):
+                    m = s.get("maneuver", {})
+                    m_type = (m.get("type") or "").lower()
+                    m_mod = (m.get("modifier") or "").lower()
+                    street_name = s.get("name") or "road"
+                    dist_m = round(s.get("distance", 0.0), 1)
+
+                    if m_type == "depart":
+                        instruction = f"Head {m_mod.replace('_', ' ') or 'forward'} on {street_name}".strip()
+                    elif m_type == "arrive":
+                        instruction = "Arrive at destination"
+                    elif m_type in ("turn", "end of road", "off ramp", "on ramp"):
+                        if m_mod:
+                            instruction = f"Turn {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Continue onto {street_name}"
+                    elif m_type == "fork":
+                        instruction = f"Take the fork {m_mod.replace('_', ' ')} onto {street_name}"
+                    elif m_type == "roundabout":
+                        instruction = f"At roundabout, take exit onto {street_name}"
+                    elif m_type in ("continue", "new name"):
+                        if m_mod and m_mod != "straight":
+                            instruction = f"Bear {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Continue straight on {street_name}"
+                    elif m_type == "merge":
+                        instruction = f"Merge {m_mod.replace('_', ' ')} onto {street_name}"
+                    else:
+                        if m_mod:
+                            instruction = f"Turn {m_mod.replace('_', ' ')} onto {street_name}"
+                        else:
+                            instruction = f"Proceed on {street_name}"
+
+                    location = m.get("location", [0.0, 0.0])
+                    steps_out.append({
+                        "instruction": instruction,
+                        "distance_meters": dist_m,
+                        "duration_seconds": round(s.get("duration", 0.0), 1),
+                        "street_name": street_name,
+                        "maneuver_type": m_type,
+                        "maneuver_modifier": m_mod,
+                        "latitude": location[1] if len(location) >= 2 else 0.0,
+                        "longitude": location[0] if len(location) >= 2 else 0.0,
+                    })
+
+        # Fallback polyline bearing step generator if OSRM steps are empty
+        if not steps_out:
+            coords = route_data.get("geometry", {}).get("coordinates", [])
+            if coords and len(coords) >= 2:
+                steps_out = cls._generate_steps_from_polyline(coords)
+
+        return steps_out
+
+    @classmethod
+    def _generate_steps_from_polyline(cls, coords: List[List[float]]) -> List[Dict[str, Any]]:
+        """Generates geometry-anchored turn steps from polyline points if OSRM steps are omitted."""
+        if not coords or len(coords) < 2:
             return []
 
-        for leg in legs:
-            for s in leg.get("steps", []):
-                m = s.get("maneuver", {})
-                m_type = m.get("type", "")
-                m_mod = m.get("modifier", "")
-                street_name = s.get("name") or "road"
+        steps = []
+        d_m = cls._haversine_distance_m(coords[0][1], coords[0][0], coords[1][1], coords[1][0])
+        steps.append({
+            "instruction": "Head forward along primary corridor",
+            "distance_meters": round(d_m, 1),
+            "duration_seconds": round(d_m / 8.0, 1),
+            "street_name": "Main Corridor",
+            "maneuver_type": "depart",
+            "maneuver_modifier": "straight",
+            "latitude": coords[0][1],
+            "longitude": coords[0][0],
+        })
 
-                if m_type == "depart":
-                    instruction = f"Head {m_mod or 'forward'} on {street_name}".strip()
-                elif m_type == "arrive":
-                    instruction = "Arrive at destination"
-                elif m_type in ("turn", "end of road", "off ramp", "on ramp"):
-                    if m_mod:
-                        instruction = f"Turn {m_mod} onto {street_name}"
-                    else:
-                        instruction = f"Continue onto {street_name}"
-                elif m_type == "fork":
-                    instruction = f"Take the fork {m_mod} onto {street_name}"
-                elif m_type == "roundabout":
-                    instruction = f"At roundabout, take exit onto {street_name}"
-                elif m_type in ("continue", "new name"):
-                    instruction = f"Continue on {street_name}"
-                else:
-                    instruction = f"Proceed on {street_name}"
+        accum_dist = 0.0
+        for i in range(1, len(coords) - 1):
+            p1 = coords[i - 1]
+            p2 = coords[i]
+            p3 = coords[i + 1]
 
-                location = m.get("location", [0.0, 0.0])
-                steps_out.append({
-                    "instruction": instruction,
-                    "distance_meters": round(s.get("distance", 0.0), 1),
-                    "duration_seconds": round(s.get("duration", 0.0), 1),
-                    "street_name": s.get("name", ""),
-                    "maneuver_type": m_type,
-                    "maneuver_modifier": m_mod,
-                    "latitude": location[1] if len(location) >= 2 else 0.0,
-                    "longitude": location[0] if len(location) >= 2 else 0.0,
+            seg_dist = cls._haversine_distance_m(p2[1], p2[0], p3[1], p3[0])
+            accum_dist += seg_dist
+
+            b1 = math.atan2(p2[0] - p1[0], p2[1] - p1[1])
+            b2 = math.atan2(p3[0] - p2[0], p3[1] - p2[1])
+            diff_deg = math.degrees(b2 - b1)
+            while diff_deg > 180: diff_deg -= 360
+            while diff_deg < -180: diff_deg += 360
+
+            if abs(diff_deg) >= 25.0 and accum_dist >= 150.0:
+                mod = "right" if diff_deg > 0 else "left"
+                if abs(diff_deg) < 45.0:
+                    mod = f"slight {mod}"
+                steps.append({
+                    "instruction": f"Turn {mod} onto Connecting Corridor",
+                    "distance_meters": round(accum_dist, 1),
+                    "duration_seconds": round(accum_dist / 8.0, 1),
+                    "street_name": "Connecting Corridor",
+                    "maneuver_type": "turn",
+                    "maneuver_modifier": mod,
+                    "latitude": p2[1],
+                    "longitude": p2[0],
                 })
-        return steps_out
+                accum_dist = 0.0
+
+        last_pt = coords[-1]
+        steps.append({
+            "instruction": "Arrive at destination",
+            "distance_meters": round(accum_dist, 1),
+            "duration_seconds": 0.0,
+            "street_name": "Destination",
+            "maneuver_type": "arrive",
+            "maneuver_modifier": "",
+            "latitude": last_pt[1],
+            "longitude": last_pt[0],
+        })
+        return steps
 
     @classmethod
     async def _fetch_osrm_routes(
@@ -548,7 +648,24 @@ class RoutingService:
             r_level = "UNKNOWN" if overall_state == "DATA_UNAVAILABLE" else "LOW"
             return [], [], 0.0, 0.0, 0.0, 0, 0, 0, r_level, overall_state, False
 
-        step = max(1, total_pts // 30)
+        # Spatial Bounding-Box Pre-Filtering for performance optimization
+        # Filter candidate flood points against route bounding box expanded by ~10 km corridor threshold
+        if coords:
+            all_lats = [c[1] for c in coords]
+            all_lons = [c[0] for c in coords]
+            box_min_lat = min(all_lats) - 0.1
+            box_max_lat = max(all_lats) + 0.1
+            box_min_lon = min(all_lons) - 0.1
+            box_max_lon = max(all_lons) + 0.1
+            relevant_pts = [
+                pt for pt in spatial_prediction_points
+                if box_min_lat <= pt.get("latitude", 0.0) <= box_max_lat
+                and box_min_lon <= pt.get("longitude", 0.0) <= box_max_lon
+            ]
+        else:
+            relevant_pts = spatial_prediction_points
+
+        sample_interval = max(1, total_pts // 100) # Sample 100 segments for concise payload unless hazard exists
 
         for i in range(total_pts - 1):
             p1 = coords[i]
@@ -561,9 +678,9 @@ class RoutingService:
             segment_depth = 0.0
             hazard_name = None
 
-            # Spatial evaluation against prediction points using 120m corridor buffer
+            # Spatial evaluation against relevant prediction points using 120m corridor buffer
             corridor_radius_m = 120.0
-            for pt in spatial_prediction_points:
+            for pt in relevant_pts:
                 dist_m = cls._haversine_distance_m(mid_lat, mid_lon, pt["latitude"], pt["longitude"])
                 if dist_m <= corridor_radius_m:
                     factor = max(0.0, 1.0 - (dist_m / corridor_radius_m))
@@ -619,17 +736,18 @@ class RoutingService:
                 provenance = "MODEL PREDICTION"
                 closed_count += 1
 
-            segments.append({
-                "segment_index": i,
-                "start_coords": p1,
-                "end_coords": p2,
-                "predicted_water_depth_cm": depth,
-                "risk_state": risk_state,
-                "color": color,
-                "depth_label": depth_label,
-                "is_vehicle_clearance_safe": (depth <= clearance_limit) and (risk_state != "CLOSED"),
-                "data_provenance": provenance,
-            })
+            # Payload optimization: include segment if hazard exists or at sampled intervals to keep payload lightweight
+            if depth > 0.0 or (i % sample_interval == 0) or i == total_pts - 2:
+                segments.append({
+                    "segment_index": i,
+                    "predicted_water_depth_cm": depth,
+                    "risk_state": risk_state,
+                    "color": color,
+                    "hazard_name": hazard_name,
+                    "depth_label": depth_label,
+                    "is_vehicle_clearance_safe": (depth <= clearance_limit) and (risk_state != "CLOSED"),
+                    "data_provenance": provenance,
+                })
 
         # Attach authoritative dataset prediction points that lie near this route corridor
         seen_pts = set()

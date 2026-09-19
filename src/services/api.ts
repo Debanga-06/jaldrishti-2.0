@@ -7,10 +7,14 @@ const getApiBaseUrl = (): string => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return `http://${host}:8000/api/v1`;
+    }
     return '/api/v1';
   }
-  return 'http://localhost:8000/api/v1';
+  return 'http://127.0.0.1:8000/api/v1';
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -210,11 +214,61 @@ export const api = {
   // GIS Digital Twin & Navigation APIs
   getWaterloggingPrediction: async (lat: number, lon: number, name?: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/prediction/waterlogging?lat=${lat}&lon=${lon}&name=${encodeURIComponent(name || '')}`);
+      const res = await fetch(`${API_BASE_URL}/prediction/waterlogging?lat=${lat}&lon=${lon}&name=${encodeURIComponent(name || '')}&location_name=${encodeURIComponent(name || '')}`);
       if (res.ok) return await res.json();
     } catch (e) {}
     return null;
   },
+
+  getFloodNowcast: async (lat: number, lon: number, name?: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/flood/nowcast?lat=${lat}&lon=${lon}&location_name=${encodeURIComponent(name || '')}`);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  getRadarRainfall: async (lat: number, lon: number, name?: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/radar/rainfall?lat=${lat}&lon=${lon}&location_name=${encodeURIComponent(name || '')}`);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  get2DSurfaceFlow: async (lat: number, lon: number, name?: string, horizonOffsetHours: number = 0) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/flood/surface-flow?lat=${lat}&lon=${lon}&location_name=${encodeURIComponent(name || '')}&horizon_offset_hours=${horizonOffsetHours}`);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  getDrainageHydraulics: async (lat: number, lon: number, name?: string, horizonOffsetHours: number = 1, simulationBlockagePct?: number) => {
+    try {
+      let url = `${API_BASE_URL}/flood/drainage-hydraulics?lat=${lat}&lon=${lon}&location_name=${encodeURIComponent(name || '')}&horizon_offset_hours=${horizonOffsetHours}`;
+      if (simulationBlockagePct !== undefined) {
+        url += `&simulation_blockage_pct=${simulationBlockagePct}`;
+      }
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+  getGisDashboard: async (lat: number, lon: number, name?: string, horizonOffsetHours: number = 0, simulationBlockagePct?: number) => {
+    try {
+      let url = `${API_BASE_URL}/flood/gis-dashboard?lat=${lat}&lon=${lon}&location_name=${encodeURIComponent(name || '')}&horizon_offset_hours=${horizonOffsetHours}`;
+      if (simulationBlockagePct !== undefined) {
+        url += `&simulation_blockage_pct=${simulationBlockagePct}`;
+      }
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
+
 
   getHomeStatus: async (lat: number, lon: number, locality?: string) => {
     try {
@@ -224,11 +278,19 @@ export const api = {
     return null;
   },
 
-  searchGeocoding: async (q: string) => {
+  searchGeocoding: async (q: string, signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/home/geocode/search?q=${encodeURIComponent(q)}`);
-      if (res.ok) return await res.json();
-    } catch (e) {}
+      const res = await fetch(`${API_BASE_URL}/home/geocode/search?q=${encodeURIComponent(q)}`, { signal });
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        return null;
+      }
+      console.warn('[searchGeocoding] Fetch error:', e);
+    }
     return [];
   },
 
@@ -312,15 +374,59 @@ export const api = {
     return null;
   },
 
-  evaluateRoutesDetailed: async (origin: any, destination: any) => {
+  evaluateRoutesDetailed: async (
+    origin: any,
+    destination: any,
+    vehicleType?: string,
+    originLat?: number | string,
+    originLon?: number | string,
+    destLat?: number | string,
+    destLon?: number | string,
+    signal?: AbortSignal
+  ) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/routes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin, destination }),
+      const nOLat = originLat !== undefined ? Number(originLat) : undefined;
+      const nOLon = originLon !== undefined ? Number(originLon) : undefined;
+      const nDLat = destLat !== undefined ? Number(destLat) : undefined;
+      const nDLon = destLon !== undefined ? Number(destLon) : undefined;
+
+      if (
+        nOLat !== undefined && !isNaN(nOLat) &&
+        nOLon !== undefined && !isNaN(nOLon) &&
+        nDLat !== undefined && !isNaN(nDLat) &&
+        nDLon !== undefined && !isNaN(nDLon)
+      ) {
+        const payload = {
+          from: { name: String(origin || 'Origin'), latitude: nOLat, longitude: nOLon },
+          to: { name: String(destination || 'Destination'), latitude: nDLat, longitude: nDLon },
+          profile: String(vehicleType || 'CAR').toLowerCase(),
+        };
+        const res = await fetch(`${API_BASE_URL}/routes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal,
+        });
+        if (res.ok) return await res.json();
+      }
+
+      const params = new URLSearchParams({
+        origin: String(origin || 'Origin'),
+        destination: String(destination || 'Destination'),
+        vehicle_type: String(vehicleType || 'CAR'),
+        ...(nOLat !== undefined ? { origin_lat: String(nOLat) } : {}),
+        ...(nOLon !== undefined ? { origin_lon: String(nOLon) } : {}),
+        ...(nDLat !== undefined ? { dest_lat: String(nDLat) } : {}),
+        ...(nDLon !== undefined ? { dest_lon: String(nDLon) } : {}),
       });
-      if (res.ok) return await res.json();
-    } catch (e) {}
+
+      const res2 = await fetch(`${API_BASE_URL}/navigation/routes/evaluate-detailed?${params.toString()}`, { signal });
+      if (res2.ok) return await res2.json();
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        console.warn('evaluateRoutesDetailed failed:', e);
+      }
+    }
     return null;
   },
 

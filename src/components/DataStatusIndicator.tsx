@@ -24,22 +24,31 @@ export const DataStatusIndicator: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-        {/* Doppler Radar Stream */}
+        {/* Doppler Weather Radar */}
+        <div className="bg-slate-950/80 border border-slate-800/70 p-1.5 rounded flex items-center justify-between">
+          <div className="flex items-center space-x-1.5 text-slate-300">
+            <Radio className="w-3 h-3 text-purple-400" />
+            <span>OBSERVED • DWR RADAR</span>
+          </div>
+          <span className="text-purple-300 font-bold">DWR Status</span>
+        </div>
+
+        {/* CWC Ground Rain Gauge Telemetry */}
         <div className="bg-slate-950/80 border border-slate-800/70 p-1.5 rounded flex items-center justify-between">
           <div className="flex items-center space-x-1.5 text-slate-300">
             <Radio className="w-3 h-3 text-cyan-400" />
-            <span>Radar Stream</span>
+            <span>OBSERVED • CWC ARG</span>
           </div>
-          <span className="text-emerald-400 font-bold">120s latency</span>
+          <span className="text-cyan-400 font-bold">Telemetry Sync</span>
         </div>
 
-        {/* AWS Rain Gauges */}
+        {/* Open-Meteo NWP Forecast */}
         <div className="bg-slate-950/80 border border-slate-800/70 p-1.5 rounded flex items-center justify-between">
           <div className="flex items-center space-x-1.5 text-slate-300">
             <Activity className="w-3 h-3 text-blue-400" />
-            <span>5/5 AWS Gauges</span>
+            <span>FORECAST • Open-Meteo</span>
           </div>
-          <span className="text-emerald-400 font-bold">100% Sync</span>
+          <span className="text-emerald-400 font-bold">NWP Live</span>
         </div>
 
         {/* 1D/2D Hydro Engine */}

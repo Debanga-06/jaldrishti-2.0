@@ -28,23 +28,22 @@ export interface MapProviderConfig {
 export const MAP_PROVIDER_CONFIG: MapProviderConfig = {
   activeProvider: 'osm-standard-street-nav',
 
-  // Primary: OpenStreetMap Standard High-Detail Navigation Map (Clean, high-resolution OSM tiles across all of India, zero API key)
+  // Primary: CartoDB Voyager / OpenStreetMap Standard High-Detail Navigation Map
   primary: {
-    name: 'OpenStreetMap Standard High-Detail Navigation Map',
+    name: 'OpenStreetMap High-Detail Navigation Map',
     type: 'raster',
     tiles: [
-      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
       'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
       'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
     ],
-    attribution: '© OpenStreetMap contributors',
+    attribution: '© OpenStreetMap contributors, © CARTO',
     tileSize: 256,
     maxZoom: 19,
     requiresApiKey: false,
   },
 
-  // Fallback: Esri World Street Navigation Map (Zero Key)
+  // Fallback: Esri World Street Navigation Map
   fallback: {
     name: 'Esri World Street Navigation Map',
     type: 'raster',

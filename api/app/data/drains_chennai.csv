@@ -1,0 +1,46 @@
+drain_id,zone,drain_type,diameter_or_width_m,depth_m,capacity_m3_per_second,current_load_percent,blockage_percent,last_cleaning_date,overflow_history_count,connected_roads,pumping_station_connected,outfall_location,responsible_department,status
+CHE-D-001,Velachery,underground_conduit,0.90,1.36,2.81,37,38,2026-08-23,5,CHE-ROAD-001,TRUE,Velachery outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-002,Velachery,box_drain,1.48,0.54,1.51,47,28,2026-07-26,4,CHE-ROAD-002,TRUE,Velachery outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-003,Velachery,underground_conduit,1.73,1.30,5.17,60,29,2026-06-26,4,CHE-ROAD-003,FALSE,Velachery outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-004,Velachery,underground_conduit,1.22,0.72,1.58,89,5,2026-07-02,3,CHE-ROAD-004,FALSE,Velachery outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-005,Velachery,culvert,2.15,1.20,3.63,36,18,2026-06-23,5,CHE-ROAD-005,FALSE,Velachery outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-006,Velachery,culvert,2.14,1.60,8.00,55,29,2026-07-13,6,CHE-ROAD-006,FALSE,Velachery outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-007,Velachery,culvert,1.50,1.17,3.55,43,33,2026-07-26,2,CHE-ROAD-007,TRUE,Velachery outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-008,Velachery,box_drain,2.11,0.70,3.12,62,47,2026-07-25,2,CHE-ROAD-008,TRUE,Velachery outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-009,Velachery,roadside_open,1.53,1.77,4.26,41,7,2026-06-19,3,CHE-ROAD-009,FALSE,Velachery outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-010,Adyar,stormwater_channel,1.66,0.73,1.82,64,39,2026-07-13,4,CHE-ROAD-010,TRUE,Adyar outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-011,Adyar,culvert,0.78,1.35,2.14,54,12,2026-07-13,2,CHE-ROAD-011,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-012,Adyar,culvert,1.67,0.68,2.45,69,38,2026-06-17,6,CHE-ROAD-012,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-013,Adyar,stormwater_channel,1.09,0.65,1.43,81,36,2026-07-04,3,CHE-ROAD-013,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-014,Adyar,underground_conduit,0.88,1.04,2.13,44,16,2026-07-29,6,CHE-ROAD-014,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-015,Adyar,box_drain,0.75,0.78,0.96,40,43,2026-06-16,6,CHE-ROAD-015,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-016,Adyar,underground_conduit,1.30,1.52,3.35,52,48,2026-07-26,2,CHE-ROAD-016,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-017,Adyar,stormwater_channel,0.71,1.13,1.18,59,13,2026-07-27,5,CHE-ROAD-017,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-018,Adyar,culvert,1.76,1.23,3.83,48,41,2026-06-30,5,CHE-ROAD-018,FALSE,Adyar outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-019,Tambaram,box_drain,1.56,1.06,3.52,82,47,2026-08-13,6,CHE-ROAD-019,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-020,Tambaram,stormwater_channel,0.66,1.49,2.02,47,36,2026-07-10,3,CHE-ROAD-020,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-021,Tambaram,culvert,0.95,0.77,1.63,82,26,2026-07-02,3,CHE-ROAD-021,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-022,Tambaram,box_drain,2.03,1.74,8.17,63,19,2026-08-18,1,CHE-ROAD-022,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-023,Tambaram,stormwater_channel,1.11,1.52,2.55,89,10,2026-07-21,6,CHE-ROAD-023,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-024,Tambaram,underground_conduit,1.35,1.16,2.34,83,7,2026-08-06,3,CHE-ROAD-024,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-025,Tambaram,underground_conduit,1.67,0.90,3.58,78,22,2026-07-31,5,CHE-ROAD-025,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-026,Tambaram,culvert,1.74,0.76,2.11,78,12,2026-06-28,2,CHE-ROAD-026,FALSE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-027,Tambaram,underground_conduit,1.12,1.16,2.57,70,20,2026-08-04,4,CHE-ROAD-027,TRUE,Tambaram outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-028,Anna Nagar,stormwater_channel,1.02,1.25,1.93,45,41,2026-06-17,5,CHE-ROAD-028,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-029,Anna Nagar,underground_conduit,1.74,1.40,3.50,53,8,2026-07-08,2,CHE-ROAD-029,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-030,Anna Nagar,culvert,1.28,0.55,1.65,92,28,2026-08-05,0,CHE-ROAD-030,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-031,Anna Nagar,stormwater_channel,1.16,1.02,2.13,75,29,2026-07-21,1,CHE-ROAD-031,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-032,Anna Nagar,roadside_open,0.82,1.48,2.42,38,12,2026-07-11,1,CHE-ROAD-032,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-033,Anna Nagar,box_drain,2.14,0.92,2.92,67,22,2026-08-24,3,CHE-ROAD-033,TRUE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-034,Anna Nagar,roadside_open,2.18,1.03,5.31,76,20,2026-08-17,5,CHE-ROAD-034,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-035,Anna Nagar,underground_conduit,1.76,1.76,6.06,70,38,2026-07-13,6,CHE-ROAD-035,TRUE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-036,Anna Nagar,stormwater_channel,0.81,0.55,0.64,63,6,2026-08-12,6,CHE-ROAD-036,FALSE,Anna Nagar outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-037,Perambur,culvert,0.78,0.56,0.90,47,37,2026-08-19,6,CHE-ROAD-037,FALSE,Perambur outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-038,Perambur,box_drain,2.10,1.07,5.09,62,40,2026-06-15,3,CHE-ROAD-038,FALSE,Perambur outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-039,Perambur,stormwater_channel,1.17,1.26,3.08,70,36,2026-06-15,1,CHE-ROAD-039,TRUE,Perambur outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
+CHE-D-040,Perambur,stormwater_channel,0.66,0.64,0.88,87,18,2026-08-24,0,CHE-ROAD-040,FALSE,Perambur outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-041,Perambur,box_drain,1.41,1.66,4.76,63,48,2026-07-28,1,CHE-ROAD-041,TRUE,Perambur outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-042,Perambur,stormwater_channel,0.74,0.98,1.11,38,16,2026-07-13,6,CHE-ROAD-042,FALSE,Perambur outfall channel,GCC Storm Water Drainage Dept.,normal
+CHE-D-043,Perambur,underground_conduit,0.91,1.67,3.34,87,35,2026-06-20,4,CHE-ROAD-043,TRUE,Perambur outfall channel,GCC Storm Water Drainage Dept.,critical
+CHE-D-044,Perambur,culvert,0.69,0.57,0.71,84,20,2026-06-15,6,CHE-ROAD-044,TRUE,Perambur outfall channel,GCC Storm Water Drainage Dept.,under_observation
+CHE-D-045,Perambur,roadside_open,0.88,1.47,2.21,66,38,2026-08-01,6,CHE-ROAD-045,FALSE,Perambur outfall channel,GCC Storm Water Drainage Dept.,needs_cleaning
