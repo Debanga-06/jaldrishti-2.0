@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useFloodStore } from '../store/useFloodStore';
 import { FloodMap } from './FloodMap';
-import { JaldrishtiApi } from '../services/api';
+import { JaldrishtiApi, API_BASE_URL } from '../services/api';
 import { LocationSearch, LocationSearchResult } from './common/LocationSearch';
 
 export const HomeView: React.FC = () => {
@@ -80,7 +80,7 @@ export const HomeView: React.FC = () => {
         async (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          const res = await fetch(`/api/v1/home/geocode/reverse?lat=${lat}&lon=${lon}`)
+          const res = await fetch(`${API_BASE_URL}/home/geocode/reverse?lat=${lat}&lon=${lon}`)
             .then((r) => r.json())
             .catch(() => null);
 
