@@ -34,10 +34,21 @@ import { FloodDashboardSummary } from './FloodDashboardSummary';
 import { getMapLibreStyle } from '../config/mapProviderConfig';
 import { simplifyDisplayGeometry } from '../utils/geometrySimplifier';
 
+// NOTE: The file you pasted did not include the import for `useFloodStore`
+// (and the `FloodHotspot` type). KEEP YOUR ORIGINAL import lines for those
+// two here, exactly as they are in your current FloodMap.tsx.
+
 
 interface FloodMapProps {
   mode?: 'HOME' | 'SEARCH' | 'NAV';
 }
+
+// Dedicated route source / layer IDs (do not reuse for unrelated layers)
+const ACTIVE_ROUTE_SOURCE = 'jaldrishti-active-route-src';
+const ACTIVE_ROUTE_GLOW = 'jaldrishti-active-route-glow';
+const ACTIVE_ROUTE_CORE = 'jaldrishti-active-route-core';
+const CANDIDATE_ROUTE_SOURCE = 'jaldrishti-candidate-route-src';
+const CANDIDATE_ROUTE_LAYER = 'jaldrishti-candidate-route-line';
 
 // Perpendicular distance in meters from point P [lon, lat] to line segment AB [[ax, ay], [bx, by]]
 function distancePointToSegmentMeters(
@@ -96,6 +107,27 @@ function extractCoordsFromGeometry(geom: any): [number, number][] {
   if (geom.coordinates && Array.isArray(geom.coordinates)) return geom.coordinates;
   if (geom.geometry) return extractCoordsFromGeometry(geom.geometry);
   return [];
+}
+
+// Robust coordinate normalizer: accepts arrays or GeoJSON objects, drops invalid / out-of-range points
+function normalizeRouteCoordinates(geometry: any): [number, number][] {
+  const raw = extractCoordsFromGeometry(geometry);
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((coord: any) => {
+      return (
+        Array.isArray(coord) &&
+        coord.length >= 2 &&
+        Number.isFinite(Number(coord[0])) &&
+        Number.isFinite(Number(coord[1]))
+      );
+    })
+    .map((coord: any) => [Number(coord[0]), Number(coord[1])] as [number, number])
+    .filter(([lng, lat]) => {
+      return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+    });
 }
 
 // Convert route polyline geometry into array of line segments [[p1, p2], [p2, p3], ...]
@@ -401,6 +433,12 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
   const userGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
   const floodPointMarkersRef = useRef<maplibregl.Marker[]>([]);
 
+  // Route rendering bookkeeping (prevents idle -> render -> setData/fitBounds -> idle loops)
+  const lastFittedRouteKeyRef = useRef<string | null>(null);
+  const lastRouteDataKeyRef = useRef<string | null>(null);
+  const lastRouteResponseRef = useRef<any>(null);
+  const isRenderingRouteRef = useRef<boolean>(false);
+
   const [selectedFloodPoint, setSelectedFloodPoint] = useState<any | null>(null);
 
   const {
@@ -423,6 +461,10 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     setNowcastOffset,
     setNowcastData,
   } = useFloodStore();
+
+  // Latest GPS coords without forcing route renderer to re-subscribe on every GPS tick
+  const userGpsCoordsRef = useRef<any>(userGpsCoords);
+  userGpsCoordsRef.current = userGpsCoords;
 
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
   const [mapViewportVersion, setMapViewportVersion] = useState<number>(0);
@@ -778,7 +820,9 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     }
   }, [mode, savedHome, selectedFromLocation, dynamicPrediction, mapLoaded]);
 
-  // Update Dynamic Overlays (Flood polygon extent, drainage lines, safe & flooded routes)
+  // Update Dynamic Overlays (Flood polygon extent, drainage lines, mode-based marker cleanup, GPS marker)
+  // NOTE: The route polyline itself (source + layers), FROM/TO markers and route camera fit are handled
+  // by the dedicated renderActiveRoute effect further below.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLoaded || !map.isStyleLoaded()) return;
@@ -822,339 +866,480 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       };
       (window as any).__floodExtentGeoJSON = floodExtentGeoJSON;
 
-    if (map.getSource('flood-extent-src')) {
-      (map.getSource('flood-extent-src') as maplibregl.GeoJSONSource).setData(floodExtentGeoJSON);
-    } else {
-      map.addSource('flood-extent-src', {
-        type: 'geojson',
-        data: floodExtentGeoJSON,
-      });
+      if (map.getSource('flood-extent-src')) {
+        (map.getSource('flood-extent-src') as maplibregl.GeoJSONSource).setData(floodExtentGeoJSON);
+      } else {
+        map.addSource('flood-extent-src', {
+          type: 'geojson',
+          data: floodExtentGeoJSON,
+        });
 
-      map.addLayer({
-        id: 'flood-extent-fill',
-        type: 'fill',
-        source: 'flood-extent-src',
-        paint: {
-          'fill-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'depth'],
-            3, '#3b82f6',   // BLUE (Low Risk < 5 cm)
-            10, '#eab308',  // YELLOW (Moderate Risk 5 - 15 cm)
-            20, '#f97316',  // ORANGE (High Risk 15 - 30 cm)
-            35, '#ef4444',  // RED (Very High Risk 30 - 45 cm)
-            50, '#a855f7',  // PURPLE (Critical Risk >= 45 cm)
-          ],
-          'fill-opacity': 0.45,
-        },
-      });
-
-      map.addLayer({
-        id: 'flood-extent-line',
-        type: 'line',
-        source: 'flood-extent-src',
-        paint: {
-          'line-color': '#ea580c',
-          'line-width': 1.5,
-        },
-      });
-    }
-
-    if (map.getLayer('flood-extent-fill')) {
-      map.setLayoutProperty('flood-extent-fill', 'visibility', layers.floodDepth ? 'visible' : 'none');
-      map.setLayoutProperty('flood-extent-line', 'visibility', layers.floodExtent ? 'visible' : 'none');
-    }
-
-    // 2. Add / Update 1D Stormwater Drainage Network
-    const drainageGeoJSON: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: { status: 'SURCHARGED', name: 'Jessore Main Storm Sewer' },
-          geometry: {
-            type: 'LineString',
-            coordinates: [[88.4805, 22.7160], [88.4845, 22.7180], [88.4870, 22.7240], [88.4895, 22.7275]],
+        map.addLayer({
+          id: 'flood-extent-fill',
+          type: 'fill',
+          source: 'flood-extent-src',
+          paint: {
+            'fill-color': [
+              'interpolate',
+              ['linear'],
+              ['get', 'depth'],
+              3, '#3b82f6',   // BLUE (Low Risk < 5 cm)
+              10, '#eab308',  // YELLOW (Moderate Risk 5 - 15 cm)
+              20, '#f97316',  // ORANGE (High Risk 15 - 30 cm)
+              35, '#ef4444',  // RED (Very High Risk 30 - 45 cm)
+              50, '#a855f7',  // PURPLE (Critical Risk >= 45 cm)
+            ],
+            'fill-opacity': 0.45,
           },
-        },
-        {
-          type: 'Feature',
-          properties: { status: 'NORMAL', name: 'NH-12 Western Bypass Culvert' },
-          geometry: {
-            type: 'LineString',
-            coordinates: [[88.4790, 22.7120], [88.4765, 22.7220], [88.4750, 22.7310]],
+        });
+
+        map.addLayer({
+          id: 'flood-extent-line',
+          type: 'line',
+          source: 'flood-extent-src',
+          paint: {
+            'line-color': '#ea580c',
+            'line-width': 1.5,
           },
-        },
-      ],
+        });
+      }
+
+      if (map.getLayer('flood-extent-fill')) {
+        map.setLayoutProperty('flood-extent-fill', 'visibility', layers.floodDepth ? 'visible' : 'none');
+        map.setLayoutProperty('flood-extent-line', 'visibility', layers.floodExtent ? 'visible' : 'none');
+      }
+
+      // 2. Add / Update 1D Stormwater Drainage Network
+      const drainageGeoJSON: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: { status: 'SURCHARGED', name: 'Jessore Main Storm Sewer' },
+            geometry: {
+              type: 'LineString',
+              coordinates: [[88.4805, 22.7160], [88.4845, 22.7180], [88.4870, 22.7240], [88.4895, 22.7275]],
+            },
+          },
+          {
+            type: 'Feature',
+            properties: { status: 'NORMAL', name: 'NH-12 Western Bypass Culvert' },
+            geometry: {
+              type: 'LineString',
+              coordinates: [[88.4790, 22.7120], [88.4765, 22.7220], [88.4750, 22.7310]],
+            },
+          },
+        ],
+      };
+
+      if (map.getSource('drainage-src')) {
+        (map.getSource('drainage-src') as maplibregl.GeoJSONSource).setData(drainageGeoJSON);
+      } else {
+        map.addSource('drainage-src', {
+          type: 'geojson',
+          data: drainageGeoJSON,
+        });
+
+        map.addLayer({
+          id: 'drainage-lines',
+          type: 'line',
+          source: 'drainage-src',
+          paint: {
+            'line-color': ['match', ['get', 'status'], 'SURCHARGED', '#c084fc', '#6366f1'],
+            'line-width': 3,
+          },
+        });
+      }
+
+      if (map.getLayer('drainage-lines')) {
+        map.setLayoutProperty('drainage-lines', 'visibility', layers.drainageNetwork ? 'visible' : 'none');
+      }
+
+      // 4. Mode-based marker cleanup (route line, FROM/TO markers and route camera fit live in renderActiveRoute)
+      if (mode === 'HOME') {
+        // Clear Search Markers when on Home View
+        if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
+        if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
+        floodPointMarkersRef.current.forEach((m) => m.remove());
+        floodPointMarkersRef.current = [];
+
+        // Ensure Home Marker is rendered & Camera is at Home
+        if (savedHome?.coordinates) {
+          const [lat, lon] = savedHome.coordinates;
+          map.flyTo({ center: [lon, lat], zoom: 14.5, duration: 1200 });
+        }
+      } else if ((mode === 'SEARCH' || mode === 'NAV') && activeRouteResponse) {
+        // Hide Home Marker during Search/Nav Mode
+        if (homeMarkerRef.current) { homeMarkerRef.current.remove(); homeMarkerRef.current = null; }
+
+        // Live GPS Position Marker Update ("YOU ARE HERE") - no continuous fitBounds during navigation
+        if (isLiveNavActive && userGpsCoords) {
+          const gpsLngLat: [number, number] = [userGpsCoords[1], userGpsCoords[0]];
+          if (userGpsMarkerRef.current) {
+            userGpsMarkerRef.current.setLngLat(gpsLngLat);
+          } else {
+            const el = document.createElement('div');
+            el.className = 'relative flex items-center justify-center';
+            el.innerHTML = `
+              <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span>
+              <div class="relative w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-xl flex items-center justify-center text-white text-[10px] font-bold">
+                🎯
+              </div>
+            `;
+            el.title = 'YOU ARE HERE (Live GPS Location)';
+            userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
+          }
+        } else if (userGpsMarkerRef.current) {
+          userGpsMarkerRef.current.remove();
+          userGpsMarkerRef.current = null;
+        }
+      } else {
+        // Clear Search Markers when activeRouteResponse is null (route data itself is cleared by renderActiveRoute)
+        if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
+        if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
+        if (userGpsMarkerRef.current) { userGpsMarkerRef.current.remove(); userGpsMarkerRef.current = null; }
+        floodPointMarkersRef.current.forEach((m) => m.remove());
+        floodPointMarkersRef.current = [];
+      }
+    } catch (err) {
+      console.warn('Map overlay update warning:', err);
+    }
+  }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints]);
+
+  // ---------------------------------------------------------------------------
+  // Dedicated, idempotent route renderer (production-safe)
+  // Draws the selected route + candidate routes + FROM/TO markers, keeps the route
+  // above flood/drainage layers, and only fits the camera when the route changes.
+  // ---------------------------------------------------------------------------
+  const renderActiveRoute = React.useCallback((): boolean => {
+    const map = mapInstanceRef.current;
+
+    (window as any).__JALDRISHTI_ROUTE_DEBUG = {
+      mapLoaded,
+      styleLoaded: map?.isStyleLoaded(),
+      hasActiveRoute: !!activeRouteResponse,
+      selectedRouteIndex,
+      sourceExists: !!map?.getSource(ACTIVE_ROUTE_SOURCE),
+      glowExists: !!map?.getLayer(ACTIVE_ROUTE_GLOW),
+      coreExists: !!map?.getLayer(ACTIVE_ROUTE_CORE),
     };
 
-    if (map.getSource('drainage-src')) {
-      (map.getSource('drainage-src') as maplibregl.GeoJSONSource).setData(drainageGeoJSON);
-    } else {
-      map.addSource('drainage-src', {
-        type: 'geojson',
-        data: drainageGeoJSON,
-      });
+    if (!map) return false;
+    if (!mapLoaded) return false;
+    if (!map.isStyleLoaded()) return false;
 
+    const emptyCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+    // No route (or HOME mode): clear stale data ONCE (never setData on every idle -> would loop)
+    if (mode === 'HOME' || !activeRouteResponse) {
+      if (lastRouteDataKeyRef.current !== null) {
+        [ACTIVE_ROUTE_SOURCE, CANDIDATE_ROUTE_SOURCE].forEach((id) => {
+          const source = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+          if (source) source.setData(emptyCollection);
+        });
+        lastRouteDataKeyRef.current = null;
+        lastRouteResponseRef.current = null;
+        lastFittedRouteKeyRef.current = null;
+      }
+      return false;
+    }
+
+    const allRoutes = [
+      activeRouteResponse.recommended_route,
+      ...(activeRouteResponse.alternative_routes || []),
+    ].filter(Boolean);
+
+    const activeRoute = allRoutes[selectedRouteIndex] || allRoutes[0];
+    if (!activeRoute) return false;
+
+    const rawCoords = normalizeRouteCoordinates(activeRoute.geometry);
+
+    if (rawCoords.length < 2) {
+      console.warn('[JALDRISHTI] Active route has insufficient coordinates', activeRoute);
+      return false;
+    }
+
+    const routeCoords = simplifyDisplayGeometry(rawCoords, 2500) as [number, number][];
+
+    if (!routeCoords || routeCoords.length < 2) {
+      console.warn('[JALDRISHTI] Simplified route has insufficient coordinates');
+      return false;
+    }
+
+    // ---- Candidate (non-selected) routes ----
+    const candidateFeatures: GeoJSON.Feature[] = [];
+    allRoutes.forEach((r: any, rIdx: number) => {
+      if (rIdx === selectedRouteIndex || !r?.geometry) return;
+      const coords = normalizeRouteCoordinates(r.geometry);
+      if (coords.length < 2) return;
+      const simplified = simplifyDisplayGeometry(coords, 2500) as [number, number][];
+      if (!simplified || simplified.length < 2) return;
+      candidateFeatures.push({
+        type: 'Feature',
+        properties: { route_id: r.route_id || `ALT-${rIdx}` },
+        geometry: { type: 'LineString', coordinates: simplified },
+      });
+    });
+    const candidatesGeoJSON: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: candidateFeatures,
+    };
+
+    // ---- Active route features ----
+    const features: GeoJSON.Feature[] = [];
+    const segments = Array.isArray(activeRoute.segments) ? activeRoute.segments : [];
+
+    segments.forEach((seg: any) => {
+      if (
+        Array.isArray(seg.start_coords) &&
+        Array.isArray(seg.end_coords) &&
+        seg.start_coords.length >= 2 &&
+        seg.end_coords.length >= 2 &&
+        Number.isFinite(Number(seg.start_coords[0])) &&
+        Number.isFinite(Number(seg.start_coords[1])) &&
+        Number.isFinite(Number(seg.end_coords[0])) &&
+        Number.isFinite(Number(seg.end_coords[1]))
+      ) {
+        features.push({
+          type: 'Feature',
+          properties: {
+            color: '#10b981',
+            depth: Number(seg.predicted_water_depth_cm || 0),
+            risk: seg.risk_state || 'SAFE',
+            label: seg.depth_label || 'SAFE',
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [Number(seg.start_coords[0]), Number(seg.start_coords[1])],
+              [Number(seg.end_coords[0]), Number(seg.end_coords[1])],
+            ],
+          },
+        });
+      }
+    });
+
+    if (features.length === 0) {
+      features.push({
+        type: 'Feature',
+        properties: { color: '#10b981', depth: 0, risk: 'SAFE', label: 'SAFE' },
+        geometry: { type: 'LineString', coordinates: routeCoords },
+      });
+    }
+
+    const geojson: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+
+    // Only push new data into MapLibre when it actually changed
+    const dataKey = `${selectedRouteIndex}|${allRoutes.length}|${routeCoords.length}|${routeCoords[0]?.join(',')}|${routeCoords[routeCoords.length - 1]?.join(',')}|${features.length}|${candidateFeatures.length}`;
+    const dataChanged =
+      lastRouteDataKeyRef.current !== dataKey ||
+      lastRouteResponseRef.current !== activeRouteResponse;
+
+    // ---- SOURCES ----
+    const existingSource = map.getSource(ACTIVE_ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (!existingSource) {
+      map.addSource(ACTIVE_ROUTE_SOURCE, { type: 'geojson', data: geojson });
+    } else if (dataChanged) {
+      existingSource.setData(geojson);
+    }
+
+    const existingCandSource = map.getSource(CANDIDATE_ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (!existingCandSource) {
+      map.addSource(CANDIDATE_ROUTE_SOURCE, { type: 'geojson', data: candidatesGeoJSON });
+    } else if (dataChanged) {
+      existingCandSource.setData(candidatesGeoJSON);
+    }
+
+    const visibility = layers.safeRoutes ? 'visible' : 'none';
+
+    // ---- CANDIDATE LAYER (dashed gray, kept below the active route) ----
+    if (!map.getLayer(CANDIDATE_ROUTE_LAYER)) {
+      map.addLayer(
+        {
+          id: CANDIDATE_ROUTE_LAYER,
+          type: 'line',
+          source: CANDIDATE_ROUTE_SOURCE,
+          layout: { visibility },
+          paint: {
+            'line-color': '#64748b',
+            'line-width': 4,
+            'line-dasharray': [2, 1],
+            'line-opacity': 0.7,
+          },
+        },
+        map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined
+      );
+    } else {
+      map.setLayoutProperty(CANDIDATE_ROUTE_LAYER, 'visibility', visibility);
+    }
+
+    // ---- GLOW LAYER ----
+    if (!map.getLayer(ACTIVE_ROUTE_GLOW)) {
       map.addLayer({
-        id: 'drainage-lines',
+        id: ACTIVE_ROUTE_GLOW,
         type: 'line',
-        source: 'drainage-src',
+        source: ACTIVE_ROUTE_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility },
         paint: {
-          'line-color': ['match', ['get', 'status'], 'SURCHARGED', '#c084fc', '#6366f1'],
-          'line-width': 3,
+          'line-color': '#10b981',
+          'line-width': 14,
+          'line-opacity': 0.35,
         },
       });
+    } else {
+      map.setLayoutProperty(ACTIVE_ROUTE_GLOW, 'visibility', visibility);
     }
 
-    if (map.getLayer('drainage-lines')) {
-      map.setLayoutProperty('drainage-lines', 'visibility', layers.drainageNetwork ? 'visible' : 'none');
+    // ---- CORE LAYER ----
+    if (!map.getLayer(ACTIVE_ROUTE_CORE)) {
+      map.addLayer({
+        id: ACTIVE_ROUTE_CORE,
+        type: 'line',
+        source: ACTIVE_ROUTE_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility },
+        paint: {
+          'line-color': '#10b981',
+          'line-width': 7,
+          'line-opacity': 1,
+        },
+      });
+    } else {
+      map.setLayoutProperty(ACTIVE_ROUTE_CORE, 'visibility', visibility);
     }
 
-        // 4. Mode-based Route, Marker & Water Accumulation Point Layering
-        if (mode === 'HOME') {
-          // Clear Search Markers & Route Layers when on Home View
-          if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
-          if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
-          floodPointMarkersRef.current.forEach((m) => m.remove());
-          floodPointMarkersRef.current = [];
-
-          if (map.getSource('safe-route-src')) {
-            (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-          }
-
-          // Ensure Home Marker is rendered & Camera is at Home
-          if (savedHome?.coordinates) {
-            const [lat, lon] = savedHome.coordinates;
-            map.flyTo({ center: [lon, lat], zoom: 14.5, duration: 1200 });
-          }
-        } else if ((mode === 'SEARCH' || mode === 'NAV') && activeRouteResponse) {
-          // Hide Home Marker during Search/Nav Mode
-          if (homeMarkerRef.current) { homeMarkerRef.current.remove(); homeMarkerRef.current = null; }
-
-          const allRoutes = [
-            activeRouteResponse.recommended_route,
-            ...(activeRouteResponse.alternative_routes || []),
-          ].filter(Boolean);
-
-          const activeRoute = allRoutes[selectedRouteIndex] || allRoutes[0];
-
-          // 1. Render Candidate Polylines for non-selected routes
-          const candidateFeatures: GeoJSON.Feature[] = [];
-          allRoutes.forEach((r: any, rIdx: number) => {
-            if (rIdx !== selectedRouteIndex && r.geometry) {
-              const geomCoords = extractCoordsFromGeometry(r.geometry);
-              const simplifiedGeom = simplifyDisplayGeometry(geomCoords, 2500);
-              candidateFeatures.push({
-                type: 'Feature',
-                properties: { route_id: r.route_id || `ALT-${rIdx}` },
-                geometry: { type: 'LineString', coordinates: simplifiedGeom },
-              });
-            }
-          });
-
-          const candidatesGeoJSON: GeoJSON.FeatureCollection = {
-            type: 'FeatureCollection',
-            features: candidateFeatures,
-          };
-
-          if (map.getSource('candidate-routes-src')) {
-            (map.getSource('candidate-routes-src') as maplibregl.GeoJSONSource).setData(candidatesGeoJSON);
-          } else {
-            map.addSource('candidate-routes-src', {
-              type: 'geojson',
-              data: candidatesGeoJSON,
-            });
-
-            map.addLayer({
-              id: 'candidate-routes-line',
-              type: 'line',
-              source: 'candidate-routes-src',
-              paint: {
-                'line-color': '#64748b',
-                'line-width': 4,
-                'line-dasharray': [2, 1],
-                'line-opacity': 0.7,
-              },
-            });
-          }
-
-          if (map.getLayer('candidate-routes-line')) {
-            map.setLayoutProperty('candidate-routes-line', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-          }
-
-          if (activeRoute) {
-            const rawRouteCoords: [number, number][] = extractCoordsFromGeometry(activeRoute.geometry);
-            const routeCoords: [number, number][] = simplifyDisplayGeometry(rawRouteCoords, 2500);
-            const segments: any[] = activeRoute.segments || [];
-
-            // Build GeoJSON features for solid, uniform emerald green recommended route (#10b981)
-            const segmentFeatures: GeoJSON.Feature[] = segments
-              .filter((seg: any) => seg.start_coords && seg.end_coords)
-              .map((seg: any) => ({
-                type: 'Feature',
-                properties: {
-                  color: '#10b981',
-                  depth: seg.predicted_water_depth_cm || 0,
-                  risk: seg.risk_state || 'SAFE',
-                  label: seg.depth_label || 'SAFE',
-                },
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [seg.start_coords, seg.end_coords],
-                },
-              }));
-
-            if (segmentFeatures.length === 0 && routeCoords.length >= 2) {
-              segmentFeatures.push({
-                type: 'Feature',
-                properties: { color: '#10b981', depth: 0, risk: 'SAFE' },
-                geometry: { type: 'LineString', coordinates: routeCoords },
-              });
-            }
-
-            const routeSegmentsGeoJSON: GeoJSON.FeatureCollection = {
-              type: 'FeatureCollection',
-              features: segmentFeatures,
-            };
-
-            if (map.getSource('safe-route-src')) {
-              (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData(routeSegmentsGeoJSON);
-            } else {
-              map.addSource('safe-route-src', {
-                type: 'geojson',
-                data: routeSegmentsGeoJSON,
-              });
-
-              map.addLayer({
-                id: 'safe-route-glow',
-                type: 'line',
-                source: 'safe-route-src',
-                paint: {
-                  'line-color': '#10b981',
-                  'line-width': 14,
-                  'line-opacity': 0.35,
-                },
-              });
-
-              map.addLayer({
-                id: 'safe-route-core',
-                type: 'line',
-                source: 'safe-route-src',
-                layout: {
-                  'line-cap': 'round',
-                  'line-join': 'round',
-                },
-                paint: {
-                  'line-color': '#10b981',
-                  'line-width': 7,
-                  'line-opacity': 1.0,
-                },
-              });
-            }
-
-            if (map.getLayer('safe-route-glow')) {
-              map.setLayoutProperty('safe-route-glow', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-              map.moveLayer('safe-route-glow');
-            }
-
-            if (map.getLayer('safe-route-core')) {
-              map.setLayoutProperty('safe-route-core', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-              map.moveLayer('safe-route-core');
-            }
-
-            // Render FROM and TO Markers
-            if (routeCoords.length >= 2) {
-              const originCoord = routeCoords[0];
-              const destCoord = routeCoords[routeCoords.length - 1];
-
-              if (fromMarkerRef.current) {
-                fromMarkerRef.current.setLngLat(originCoord);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'w-7 h-7 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
-                el.innerHTML = '🟢';
-                el.title = `FROM: ${activeRouteResponse.origin?.name || 'Origin'}`;
-                fromMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(originCoord).addTo(map);
-              }
-
-              if (toMarkerRef.current) {
-                toMarkerRef.current.setLngLat(destCoord);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'w-7 h-7 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
-                el.innerHTML = '🏁';
-                el.title = `TO: ${activeRouteResponse.destination?.name || 'Destination'}`;
-                toMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(destCoord).addTo(map);
-              }
-
-              // Clear legacy flood markers
-              floodPointMarkersRef.current.forEach((m) => m.remove());
-              floodPointMarkersRef.current = [];
-
-              // Camera fitBounds to the complete searched route journey when live navigation is not active or GPS location is pending
-              if (!isLiveNavActive || !userGpsCoords) {
-                const bounds = new maplibregl.LngLatBounds();
-                routeCoords.forEach((c) => bounds.extend(c));
-                map.fitBounds(bounds, {
-                  padding: { top: 70, bottom: 70, left: 70, right: 70 },
-                  duration: 1200,
-                  maxZoom: 16,
-                });
-              }
-            }
-
-            // Live GPS Position Marker Update ("YOU ARE HERE")
-            if (isLiveNavActive && userGpsCoords) {
-              const gpsLngLat: [number, number] = [userGpsCoords[1], userGpsCoords[0]];
-              if (userGpsMarkerRef.current) {
-                userGpsMarkerRef.current.setLngLat(gpsLngLat);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'relative flex items-center justify-center';
-                el.innerHTML = `
-                  <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span>
-                  <div class="relative w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-xl flex items-center justify-center text-white text-[10px] font-bold">
-                    🎯
-                  </div>
-                `;
-                el.title = 'YOU ARE HERE (Live GPS Location)';
-                userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
-              }
-
-              // Fit camera bounds to encompass complete route polyline AND live GPS marker so green route polyline never disappears
-              const bounds = new maplibregl.LngLatBounds();
-              routeCoords.forEach((c) => bounds.extend(c));
-              bounds.extend(gpsLngLat);
-              map.fitBounds(bounds, {
-                padding: { top: 70, bottom: 70, left: 70, right: 70 },
-                duration: 800,
-                maxZoom: 15,
-              });
-            } else if (userGpsMarkerRef.current) {
-              userGpsMarkerRef.current.remove();
-              userGpsMarkerRef.current = null;
-            }
-          }
-        } else {
-          // Clear Search Markers & Route Layers when activeRouteResponse is null
-          if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
-          if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
-          if (userGpsMarkerRef.current) { userGpsMarkerRef.current.remove(); userGpsMarkerRef.current = null; }
-          floodPointMarkersRef.current.forEach((m) => m.remove());
-          floodPointMarkersRef.current = [];
-
-          if (map.getSource('safe-route-src')) {
-            (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-          }
-          if (map.getSource('candidate-routes-src')) {
-            (map.getSource('candidate-routes-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-          }
-        }
-      } catch (err) {
-        console.warn('Map overlay update warning:', err);
+    // ---- Keep route above all flood / drainage layers ----
+    // Only move when not already on top (moveLayer fires styledata; avoids feedback loops)
+    try {
+      const layerIds = map.getStyle().layers.map((l) => l.id);
+      const n = layerIds.length;
+      if (layerIds[n - 2] !== ACTIVE_ROUTE_GLOW || layerIds[n - 1] !== ACTIVE_ROUTE_CORE) {
+        if (map.getLayer(ACTIVE_ROUTE_GLOW)) map.moveLayer(ACTIVE_ROUTE_GLOW);
+        if (map.getLayer(ACTIVE_ROUTE_CORE)) map.moveLayer(ACTIVE_ROUTE_CORE);
       }
-    }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints]);
+    } catch (e) {
+      console.warn('[JALDRISHTI] Could not move route layers', e);
+    }
+
+    // ---- FROM / TO markers (unchanged look, now from normalized coords) ----
+    const originCoord = routeCoords[0];
+    const destinationCoord = routeCoords[routeCoords.length - 1];
+
+    if (fromMarkerRef.current) {
+      fromMarkerRef.current.setLngLat(originCoord);
+    } else {
+      const el = document.createElement('div');
+      el.className = 'w-7 h-7 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
+      el.innerHTML = '🟢';
+      el.title = `FROM: ${activeRouteResponse.origin?.name || 'Origin'}`;
+      fromMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(originCoord).addTo(map);
+    }
+
+    if (toMarkerRef.current) {
+      toMarkerRef.current.setLngLat(destinationCoord);
+    } else {
+      const el = document.createElement('div');
+      el.className = 'w-7 h-7 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
+      el.innerHTML = '🏁';
+      el.title = `TO: ${activeRouteResponse.destination?.name || 'Destination'}`;
+      toMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(destinationCoord).addTo(map);
+    }
+
+    // Clear legacy flood markers
+    floodPointMarkersRef.current.forEach((m) => m.remove());
+    floodPointMarkersRef.current = [];
+
+    // ---- Camera: fit ONLY when the route changes; never on idle; never during GPS navigation ----
+    const routeKey = `${selectedRouteIndex}-${routeCoords.length}-${routeCoords[0]?.join(',')}-${routeCoords[routeCoords.length - 1]?.join(',')}`;
+    if (lastFittedRouteKeyRef.current !== routeKey) {
+      lastFittedRouteKeyRef.current = routeKey;
+
+      if (!(isLiveNavActive && userGpsCoordsRef.current)) {
+        const bounds = new maplibregl.LngLatBounds();
+        routeCoords.forEach((c) => bounds.extend(c));
+        map.fitBounds(bounds, {
+          padding: { top: 70, bottom: 70, left: 70, right: 70 },
+          duration: 1200,
+          maxZoom: 16,
+        });
+      }
+    }
+
+    if (dataChanged) {
+      console.log('[JALDRISHTI ROUTE DEBUG]', {
+        mapLoaded,
+        styleLoaded: map.isStyleLoaded(),
+        hasActiveRoute: !!activeRouteResponse,
+        selectedRouteIndex,
+        routeCount: allRoutes.length,
+        coordinateCount: rawCoords.length,
+      });
+      console.log('[JALDRISHTI] Active route rendered:', routeCoords.length, 'coordinates');
+    }
+
+    lastRouteDataKeyRef.current = dataKey;
+    lastRouteResponseRef.current = activeRouteResponse;
+
+    (window as any).__JALDRISHTI_ACTIVE_ROUTE_DEBUG = {
+      coordinateCount: routeCoords.length,
+      featureCount: features.length,
+      selectedRouteIndex,
+      sourceExists: !!map.getSource(ACTIVE_ROUTE_SOURCE),
+      glowExists: !!map.getLayer(ACTIVE_ROUTE_GLOW),
+      coreExists: !!map.getLayer(ACTIVE_ROUTE_CORE),
+    };
+
+    return true;
+  }, [
+    mapLoaded,
+    mode,
+    activeRouteResponse,
+    selectedRouteIndex,
+    isLiveNavActive,
+    layers.safeRoutes,
+  ]);
+
+  // Route rendering effect: retries on idle / styledata / resize so it survives
+  // MapLibre style-loading timing differences between localhost and Vercel.
+  useEffect(() => {
+    if (!mapLoaded) return;
+
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const tryRender = () => {
+      // addSource/addLayer/moveLayer fire styledata; guard against re-entrancy
+      if (isRenderingRouteRef.current) return;
+      if (!map.isStyleLoaded()) return;
+
+      isRenderingRouteRef.current = true;
+      try {
+        renderActiveRoute();
+      } catch (e) {
+        console.warn('[JALDRISHTI] Route render failed', e);
+      } finally {
+        isRenderingRouteRef.current = false;
+      }
+    };
+
+    tryRender();
+
+    map.on('idle', tryRender);
+    map.on('styledata', tryRender);
+    map.on('resize', tryRender);
+
+    return () => {
+      map.off('idle', tryRender);
+      map.off('styledata', tryRender);
+      map.off('resize', tryRender);
+    };
+  }, [
+    mapLoaded,
+    activeRouteResponse,
+    selectedRouteIndex,
+    isLiveNavActive,
+    layers.safeRoutes,
+    renderActiveRoute,
+  ]);
 
   const getInfraIcon = (type: string) => {
     switch (type) {
