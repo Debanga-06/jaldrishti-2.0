@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import { MapPin, Navigation, CheckCircle2, ArrowRight, Compass } from 'lucide-react';
 import { useFloodStore } from '../store/useFloodStore';
 import { LocationSearch, LocationSearchResult } from './common/LocationSearch';
+import { API_BASE_URL } from '../services/api';
 
 export const OnboardingView: React.FC = () => {
   const { setSavedHome, completeOnboarding } = useFloodStore();
@@ -27,7 +28,7 @@ export const OnboardingView: React.FC = () => {
           setGpsStatus('SUCCESS');
 
           try {
-            const res = await fetch(`/api/v1/home/geocode/reverse?lat=${lat}&lon=${lon}`)
+            const res = await fetch(`${API_BASE_URL}/home/geocode/reverse?lat=${lat}&lon=${lon}`)
               .then((r) => r.json())
               .catch(() => null);
 
