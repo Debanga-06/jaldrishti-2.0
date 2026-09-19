@@ -29,14 +29,12 @@ import {
 } from 'lucide-react';
 import { JaldrishtiApi } from '../services/api';
 import { CommunityFeedbackSection } from './CommunityFeedbackSection';
-import { GisDashboardResponse, StreetProjectionRecord, SurfaceFlowCell } from '../types';
+import { GisDashboardResponse, StreetProjectionRecord, SurfaceFlowCell, FloodHotspot } from '../types';
 import { FloodDashboardSummary } from './FloodDashboardSummary';
 import { getMapLibreStyle } from '../config/mapProviderConfig';
 import { simplifyDisplayGeometry } from '../utils/geometrySimplifier';
 
-// NOTE: The file you pasted did not include the import for `useFloodStore`
-// (and the `FloodHotspot` type). KEEP YOUR ORIGINAL import lines for those
-// two here, exactly as they are in your current FloodMap.tsx.
+import { useFloodStore } from '../store/useFloodStore';
 
 
 interface FloodMapProps {
@@ -49,6 +47,39 @@ const ACTIVE_ROUTE_GLOW = 'jaldrishti-active-route-glow';
 const ACTIVE_ROUTE_CORE = 'jaldrishti-active-route-core';
 const CANDIDATE_ROUTE_SOURCE = 'jaldrishti-candidate-route-src';
 const CANDIDATE_ROUTE_LAYER = 'jaldrishti-candidate-route-line';
+
+// Bounded retry window for route rendering (~4.9s total; last attempt is forced). No setInterval.
+const ROUTE_RETRY_DELAYS_MS = [100, 250, 500, 1000, 1000, 1000, 1000];
+
+type RouteRenderStatus = 'rendered' | 'waiting' | 'idle' | 'failed' | 'busy';
+
+// Publishes production debug state. Safe to call at any time (even before the style exists).
+function writeRouteDebug(
+  map: maplibregl.Map | null,
+  mapLoaded: boolean,
+  hasActiveRoute: boolean,
+  selectedRouteIndex: number,
+  extra: Record<string, any> = {}
+) {
+  const safe = <T,>(fn: () => T): T | undefined => {
+    try {
+      return fn();
+    } catch {
+      return undefined;
+    }
+  };
+  (window as any).__JALDRISHTI_ROUTE_DEBUG = {
+    mapLoaded,
+    styleLoaded: map ? safe(() => map.isStyleLoaded()) : undefined,
+    hasActiveRoute,
+    selectedRouteIndex,
+    sourceExists: !!(map && safe(() => map.getSource(ACTIVE_ROUTE_SOURCE))),
+    glowExists: !!(map && safe(() => map.getLayer(ACTIVE_ROUTE_GLOW))),
+    coreExists: !!(map && safe(() => map.getLayer(ACTIVE_ROUTE_CORE))),
+    updatedAt: new Date().toISOString(),
+    ...extra,
+  };
+}
 
 // Perpendicular distance in meters from point P [lon, lat] to line segment AB [[ax, ay], [bx, by]]
 function distancePointToSegmentMeters(
@@ -438,6 +469,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
   const lastRouteDataKeyRef = useRef<string | null>(null);
   const lastRouteResponseRef = useRef<any>(null);
   const isRenderingRouteRef = useRef<boolean>(false);
+  const routeWaitingLoggedRef = useRef<boolean>(false);
 
   const [selectedFloodPoint, setSelectedFloodPoint] = useState<any | null>(null);
 
@@ -460,7 +492,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     nowcastData,
     setNowcastOffset,
     setNowcastData,
-  } = useFloodStore();
+  } = useFloodStore() as any; // route response carries extra fields (origin/destination/candidate_routes) not in SafeRouteResponse
 
   // Latest GPS coords without forcing route renderer to re-subscribe on every GPS tick
   const userGpsCoordsRef = useRef<any>(userGpsCoords);
@@ -468,6 +500,8 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
 
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
   const [mapViewportVersion, setMapViewportVersion] = useState<number>(0);
+  // Bumped once when the map first goes idle so the flood/drainage overlay effect can re-run after tiles finish
+  const [mapIdleVersion, setMapIdleVersion] = useState<number>(0);
   const [hoveredHotspot, setHoveredHotspot] = useState<FloodHotspot | null>(null);
   const [hoveredInfra, setHoveredInfra] = useState<any | null>(null);
   const [dynamicPrediction, setDynamicPrediction] = useState<any | null>(null);
@@ -704,20 +738,32 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         resizeObserver.observe(mapContainerRef.current);
       }
 
-      map.on('load', () => {
+      // Map readiness: 'load' normally fires, but on some production builds it is delayed (tiles slow
+      // or blocked). So 'styledata' / 'idle' also mark the map ready as soon as the style JSON is parsed.
+      let readyHandled = false;
+      let animFrameId: number | null = null;
+      const onMove = () => {
+        if (animFrameId === null) {
+          animFrameId = requestAnimationFrame(() => {
+            setMapViewportVersion((v) => v + 1);
+            animFrameId = null;
+          });
+        }
+      };
+
+      const markMapReady = (reason: string) => {
+        if (readyHandled) return;
+        try {
+          if (!map.getStyle()) return; // style JSON not parsed yet
+        } catch {
+          return;
+        }
+        readyHandled = true;
+        console.log(`[JALDRISHTI] Map ready (${reason}), styleLoaded=${map.isStyleLoaded()}`);
         setMapLoaded(true);
         map.resize();
         map.resize();
-
-        let animFrameId: number | null = null;
-        map.on('move', () => {
-          if (animFrameId === null) {
-            animFrameId = requestAnimationFrame(() => {
-              setMapViewportVersion((v) => v + 1);
-              animFrameId = null;
-            });
-          }
-        });
+        map.on('move', onMove);
 
         // Initial Home Pin placement
         if (savedHome?.coordinates) {
@@ -741,6 +787,16 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           }
           homeMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(center).setPopup(popup).addTo(map);
         }
+      };
+
+      map.on('load', () => {
+        markMapReady('load');
+        setMapIdleVersion((v) => v + 1);
+      });
+      map.on('styledata', () => markMapReady('styledata'));
+      map.once('idle', () => {
+        markMapReady('idle');
+        setMapIdleVersion((v) => v + 1);
       });
 
       return () => {
@@ -755,6 +811,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           // Ignore cleanup errors
         }
         mapInstanceRef.current = null;
+        setMapLoaded(false);
       };
     } catch (err) {
       console.warn('MapLibre GL initialization fallback:', err);
@@ -1004,44 +1061,70 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     } catch (err) {
       console.warn('Map overlay update warning:', err);
     }
-  }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints]);
+  }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints, mapIdleVersion]);
 
   // ---------------------------------------------------------------------------
-  // Dedicated, idempotent route renderer (production-safe)
-  // Draws the selected route + candidate routes + FROM/TO markers, keeps the route
-  // above flood/drainage layers, and only fits the camera when the route changes.
+  // AUTHORITATIVE active-route renderer (the ONLY code that draws the route line).
+  // Idempotent + retry-safe: it never permanently gives up because the MapLibre
+  // style/tiles were still loading. Draws the selected route, candidate routes and
+  // FROM/TO markers, keeps the route above flood/drainage layers, and only fits the
+  // camera once per route (after the source + layers are verified to exist).
   // ---------------------------------------------------------------------------
-  const renderActiveRoute = React.useCallback((): boolean => {
+  const renderActiveRoute = React.useCallback((force: boolean = false): RouteRenderStatus => {
     const map = mapInstanceRef.current;
 
-    (window as any).__JALDRISHTI_ROUTE_DEBUG = {
-      mapLoaded,
-      styleLoaded: map?.isStyleLoaded(),
-      hasActiveRoute: !!activeRouteResponse,
-      selectedRouteIndex,
-      sourceExists: !!map?.getSource(ACTIVE_ROUTE_SOURCE),
-      glowExists: !!map?.getLayer(ACTIVE_ROUTE_GLOW),
-      coreExists: !!map?.getLayer(ACTIVE_ROUTE_CORE),
-    };
+    // Always publish debug state, even when we are only waiting for the style.
+    writeRouteDebug(map, mapLoaded, !!activeRouteResponse, selectedRouteIndex);
 
-    if (!map) return false;
-    if (!mapLoaded) return false;
-    if (!map.isStyleLoaded()) return false;
+    if (!map) return 'waiting';
+    if (!mapLoaded) return 'waiting';
+
+    const noRoute = mode === 'HOME' || !activeRouteResponse;
+
+    // Nothing to draw and nothing drawn before: no need to touch the style at all.
+    if (noRoute && lastRouteDataKeyRef.current === null) return 'idle';
+
+    // ---- Style readiness -------------------------------------------------------
+    // isStyleLoaded() is false while ANY source is still fetching tiles, even though the
+    // style JSON is parsed and addSource/addLayer already work. So after the bounded retry
+    // window we "force" (force=true) and only require that the style JSON exists.
+    let styleReady = false;
+    try {
+      styleReady = map.isStyleLoaded();
+    } catch {
+      styleReady = false;
+    }
+    if (!styleReady && force) {
+      try {
+        styleReady = !!map.getStyle();
+      } catch {
+        styleReady = false;
+      }
+    }
+    if (!styleReady) {
+      if (!routeWaitingLoggedRef.current) {
+        routeWaitingLoggedRef.current = true;
+        console.log('[JALDRISHTI] Map style not ready, waiting for styledata/idle...');
+      }
+      return 'waiting';
+    }
+    if (routeWaitingLoggedRef.current) {
+      routeWaitingLoggedRef.current = false;
+      console.log('[JALDRISHTI] Map style ready, rendering active route...');
+    }
 
     const emptyCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-    // No route (or HOME mode): clear stale data ONCE (never setData on every idle -> would loop)
-    if (mode === 'HOME' || !activeRouteResponse) {
-      if (lastRouteDataKeyRef.current !== null) {
-        [ACTIVE_ROUTE_SOURCE, CANDIDATE_ROUTE_SOURCE].forEach((id) => {
-          const source = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
-          if (source) source.setData(emptyCollection);
-        });
-        lastRouteDataKeyRef.current = null;
-        lastRouteResponseRef.current = null;
-        lastFittedRouteKeyRef.current = null;
-      }
-      return false;
+    // ---- No route (or HOME mode): clear stale data ONCE (never setData on every idle -> loop) ----
+    if (noRoute) {
+      [ACTIVE_ROUTE_SOURCE, CANDIDATE_ROUTE_SOURCE].forEach((id) => {
+        const source = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+        if (source) source.setData(emptyCollection);
+      });
+      lastRouteDataKeyRef.current = null;
+      lastRouteResponseRef.current = null;
+      lastFittedRouteKeyRef.current = null;
+      return 'idle';
     }
 
     const allRoutes = [
@@ -1050,20 +1133,20 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     ].filter(Boolean);
 
     const activeRoute = allRoutes[selectedRouteIndex] || allRoutes[0];
-    if (!activeRoute) return false;
+    if (!activeRoute) return 'idle';
 
     const rawCoords = normalizeRouteCoordinates(activeRoute.geometry);
 
     if (rawCoords.length < 2) {
       console.warn('[JALDRISHTI] Active route has insufficient coordinates', activeRoute);
-      return false;
+      return 'idle';
     }
 
     const routeCoords = simplifyDisplayGeometry(rawCoords, 2500) as [number, number][];
 
     if (!routeCoords || routeCoords.length < 2) {
       console.warn('[JALDRISHTI] Simplified route has insufficient coordinates');
-      return false;
+      return 'idle';
     }
 
     // ---- Candidate (non-selected) routes ----
@@ -1135,22 +1218,28 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       lastRouteDataKeyRef.current !== dataKey ||
       lastRouteResponseRef.current !== activeRouteResponse;
 
-    // ---- SOURCES ----
-    const existingSource = map.getSource(ACTIVE_ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    if (!existingSource) {
+    const sourceMissing = !map.getSource(ACTIVE_ROUTE_SOURCE);
+    if (dataChanged || sourceMissing) {
+      console.log('[JALDRISHTI] Map style ready, rendering active route...');
+    }
+
+    // ---- SOURCES (add if missing, otherwise update data) ----
+    if (!map.getSource(ACTIVE_ROUTE_SOURCE)) {
       map.addSource(ACTIVE_ROUTE_SOURCE, { type: 'geojson', data: geojson });
     } else if (dataChanged) {
-      existingSource.setData(geojson);
+      (map.getSource(ACTIVE_ROUTE_SOURCE) as maplibregl.GeoJSONSource).setData(geojson);
     }
 
-    const existingCandSource = map.getSource(CANDIDATE_ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    if (!existingCandSource) {
+    if (!map.getSource(CANDIDATE_ROUTE_SOURCE)) {
       map.addSource(CANDIDATE_ROUTE_SOURCE, { type: 'geojson', data: candidatesGeoJSON });
     } else if (dataChanged) {
-      existingCandSource.setData(candidatesGeoJSON);
+      (map.getSource(CANDIDATE_ROUTE_SOURCE) as maplibregl.GeoJSONSource).setData(candidatesGeoJSON);
     }
 
-    const visibility = layers.safeRoutes ? 'visible' : 'none';
+    // Active route is ALWAYS visible while debugging (removes safeRoutes as a possible cause).
+    const visibility = 'visible';
+    // Candidate (dashed gray) routes keep following the safe-routes toggle.
+    const candidateVisibility = layers.safeRoutes ? 'visible' : 'none';
 
     // ---- CANDIDATE LAYER (dashed gray, kept below the active route) ----
     if (!map.getLayer(CANDIDATE_ROUTE_LAYER)) {
@@ -1159,7 +1248,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           id: CANDIDATE_ROUTE_LAYER,
           type: 'line',
           source: CANDIDATE_ROUTE_SOURCE,
-          layout: { visibility },
+          layout: { visibility: candidateVisibility },
           paint: {
             'line-color': '#64748b',
             'line-width': 4,
@@ -1170,7 +1259,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined
       );
     } else {
-      map.setLayoutProperty(CANDIDATE_ROUTE_LAYER, 'visibility', visibility);
+      map.setLayoutProperty(CANDIDATE_ROUTE_LAYER, 'visibility', candidateVisibility);
     }
 
     // ---- GLOW LAYER ----
@@ -1207,8 +1296,17 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       map.setLayoutProperty(ACTIVE_ROUTE_CORE, 'visibility', visibility);
     }
 
-    // ---- Keep route above all flood / drainage layers ----
-    // Only move when not already on top (moveLayer fires styledata; avoids feedback loops)
+    // ---- Verify the source + layers really exist before anything else (markers / fitBounds) ----
+    const sourceOk = !!map.getSource(ACTIVE_ROUTE_SOURCE);
+    const glowOk = !!map.getLayer(ACTIVE_ROUTE_GLOW);
+    const coreOk = !!map.getLayer(ACTIVE_ROUTE_CORE);
+    if (!sourceOk || !glowOk || !coreOk) {
+      console.error('[JALDRISHTI] Route source/layers missing after add', { sourceOk, glowOk, coreOk });
+      writeRouteDebug(map, mapLoaded, true, selectedRouteIndex, { status: 'failed' });
+      return 'failed';
+    }
+
+    // ---- Keep route above all flood / drainage layers (only when not already on top) ----
     try {
       const layerIds = map.getStyle().layers.map((l) => l.id);
       const n = layerIds.length;
@@ -1248,7 +1346,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     floodPointMarkersRef.current.forEach((m) => m.remove());
     floodPointMarkersRef.current = [];
 
-    // ---- Camera: fit ONLY when the route changes; never on idle; never during GPS navigation ----
+    // ---- Camera: fit ONLY when the route changes (after layers exist); never on idle; never during GPS navigation ----
     const routeKey = `${selectedRouteIndex}-${routeCoords.length}-${routeCoords[0]?.join(',')}-${routeCoords[routeCoords.length - 1]?.join(',')}`;
     if (lastFittedRouteKeyRef.current !== routeKey) {
       lastFittedRouteKeyRef.current = routeKey;
@@ -1265,14 +1363,6 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     }
 
     if (dataChanged) {
-      console.log('[JALDRISHTI ROUTE DEBUG]', {
-        mapLoaded,
-        styleLoaded: map.isStyleLoaded(),
-        hasActiveRoute: !!activeRouteResponse,
-        selectedRouteIndex,
-        routeCount: allRoutes.length,
-        coordinateCount: rawCoords.length,
-      });
       console.log('[JALDRISHTI] Active route rendered:', routeCoords.length, 'coordinates');
     }
 
@@ -1281,14 +1371,17 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
 
     (window as any).__JALDRISHTI_ACTIVE_ROUTE_DEBUG = {
       coordinateCount: routeCoords.length,
+      rawCoordinateCount: rawCoords.length,
       featureCount: features.length,
+      routeCount: allRoutes.length,
       selectedRouteIndex,
       sourceExists: !!map.getSource(ACTIVE_ROUTE_SOURCE),
       glowExists: !!map.getLayer(ACTIVE_ROUTE_GLOW),
       coreExists: !!map.getLayer(ACTIVE_ROUTE_CORE),
     };
+    writeRouteDebug(map, mapLoaded, true, selectedRouteIndex, { status: 'rendered', forced: force });
 
-    return true;
+    return 'rendered';
   }, [
     mapLoaded,
     mode,
@@ -1298,39 +1391,78 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     layers.safeRoutes,
   ]);
 
-  // Route rendering effect: retries on idle / styledata / resize so it survives
-  // MapLibre style-loading timing differences between localhost and Vercel.
+  // Route rendering effect: attempts immediately, then retries inside a small BOUNDED window
+  // (100/250/500/1000/1000/1000/1000 ms ~ 4.9s, final attempt forced) and also re-attempts on
+  // MapLibre load / styledata / idle. No setInterval; all timers + listeners are cleaned up.
   useEffect(() => {
-    if (!mapLoaded) return;
-
     const map = mapInstanceRef.current;
-    if (!map) return;
 
-    const tryRender = () => {
-      // addSource/addLayer/moveLayer fire styledata; guard against re-entrancy
-      if (isRenderingRouteRef.current) return;
-      if (!map.isStyleLoaded()) return;
+    // Debug state is written even when we cannot render yet.
+    writeRouteDebug(map, mapLoaded, !!activeRouteResponse, selectedRouteIndex);
+
+    if (!map || !mapLoaded) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const runOnce = (force: boolean): RouteRenderStatus => {
+      if (cancelled) return 'busy';
+      // addSource/addLayer/moveLayer fire styledata synchronously -> guard against re-entrancy
+      if (isRenderingRouteRef.current) return 'busy';
 
       isRenderingRouteRef.current = true;
       try {
-        renderActiveRoute();
+        return renderActiveRoute(force);
       } catch (e) {
         console.warn('[JALDRISHTI] Route render failed', e);
+        return 'failed';
       } finally {
         isRenderingRouteRef.current = false;
       }
     };
 
-    tryRender();
+    const scheduleRetry = () => {
+      if (cancelled || timer !== null) return;
+      if (attempt >= ROUTE_RETRY_DELAYS_MS.length) return; // retry window exhausted (events may still trigger renders)
 
-    map.on('idle', tryRender);
-    map.on('styledata', tryRender);
-    map.on('resize', tryRender);
+      const delay = ROUTE_RETRY_DELAYS_MS[attempt];
+      const isLast = attempt === ROUTE_RETRY_DELAYS_MS.length - 1;
+      attempt += 1;
+      const n = attempt;
+
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
+        console.log(`[JALDRISHTI] Route render retry ${n}${isLast ? ' (forced)' : ''}`);
+        const status = runOnce(isLast);
+        if (status === 'waiting' || status === 'failed') scheduleRetry();
+      }, delay);
+    };
+
+    const onMapEvent = () => {
+      const status = runOnce(false);
+      if (status === 'waiting' || status === 'failed') scheduleRetry();
+    };
+
+    // 1) immediate attempt
+    const first = runOnce(false);
+    if (first === 'waiting' || first === 'failed') scheduleRetry();
+
+    // 2) temporary listeners
+    map.on('load', onMapEvent);
+    map.on('styledata', onMapEvent);
+    map.on('idle', onMapEvent);
 
     return () => {
-      map.off('idle', tryRender);
-      map.off('styledata', tryRender);
-      map.off('resize', tryRender);
+      cancelled = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      map.off('load', onMapEvent);
+      map.off('styledata', onMapEvent);
+      map.off('idle', onMapEvent);
     };
   }, [
     mapLoaded,
