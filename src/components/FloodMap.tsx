@@ -931,6 +931,10 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           data: floodExtentGeoJSON,
         });
 
+        // Insert BELOW the active route (if it already exists) so route lines added earlier
+        // can never end up visually buried under a later-added flood overlay.
+        const routeFloor = map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined;
+
         map.addLayer({
           id: 'flood-extent-fill',
           type: 'fill',
@@ -948,7 +952,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
             ],
             'fill-opacity': 0.45,
           },
-        });
+        }, routeFloor);
 
         map.addLayer({
           id: 'flood-extent-line',
@@ -958,7 +962,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
             'line-color': '#ea580c',
             'line-width': 1.5,
           },
-        });
+        }, routeFloor);
       }
 
       if (map.getLayer('flood-extent-fill')) {
@@ -1005,7 +1009,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
             'line-color': ['match', ['get', 'status'], 'SURCHARGED', '#c084fc', '#6366f1'],
             'line-width': 3,
           },
-        });
+        }, map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined);
       }
 
       if (map.getLayer('drainage-lines')) {
