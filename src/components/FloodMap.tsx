@@ -6,15 +6,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// Vite bundles everything into one chunk, so MapLibre's own runtime guess for its worker
-// script (relative to its chunk's import.meta.url) 404s in production. That worker file
-// also has its own internal relative import ('./maplibre-gl-shared.mjs'), so it can't be
-// pulled in via a bundler asset import (e.g. Vite's ?url) without that sibling chunk
-// 404ing too. Both files are copied verbatim into /public/maplibre (see public/maplibre/)
-// so they're served as static files with their relative import intact, and we point
-// MapLibre at the copy before any Map is constructed. Without this, GeoJSON sources (the
-// route line, flood-extent, drainage layers) silently never render — only raster basemap
-// tiles work, since those are decoded on the main thread and don't need the worker.
 maplibregl.setWorkerUrl(`${import.meta.env.BASE_URL}maplibre/maplibre-gl-worker.mjs`);
 import {
   Layers,
