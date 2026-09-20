@@ -210,6 +210,11 @@ interface FloodStoreState {
   feedbackSyncError: string | null;
   clearFeedbackSyncError: () => void;
   addCommunityFeedback: (spotId: string, text: string, photoUrl?: string | null) => void;
+  // Re-pulls all community feedback from the server and merges it into local state, so
+  // comments other users posted (on this or any other device) actually show up here —
+  // without this, the UI only ever shows whatever was cached locally after this device's
+  // last login/register/post.
+  syncCommunityFeedbacks: () => void;
   deleteCommunityFeedback: (spotId: string, feedbackId: string) => void;
   toggleLikeCommunityFeedback: (spotId: string, feedbackId: string) => void;
   toggleDislikeCommunityFeedback: (spotId: string, feedbackId: string) => void;
@@ -1311,6 +1316,18 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   setSelectedPredictionId: (id: string | null) => set({ selectedPredictionId: id }),
 
   // Persistent Community Feedback Actions
+  syncCommunityFeedbacks: () => {
+    api.getAllFeedbacks().then((fbs) => {
+      // Merge rather than blind-overwrite: keep server truth for every spot the server knows
+      // about, but don't wipe out a spot's local list if the server call returns partial data.
+      if (fbs && typeof fbs === 'object') {
+        set((state) => ({ communityFeedbacks: { ...state.communityFeedbacks, ...fbs } }));
+        try {
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(get().communityFeedbacks));
+        } catch (e) {}
+      }
+    }).catch(() => {});
+  },
   addCommunityFeedback: (spotId: string, text: string, photoUrl?: string | null) => {
     if (!spotId || (!text.trim() && !photoUrl)) return;
     const currentUserEmail = get().userEmail || 'user@jaldrishti.org';
