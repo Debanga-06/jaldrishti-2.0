@@ -2,7 +2,7 @@
  * JALDRISHTI - Flood-Aware Navigation & Early Warning Platform
  * Tagline: "Know the Flood Before You Reach It."
  * Supports Primary Consumer Experience (Home, Search, Alerts, Profile)
- * + Municipal Command Center (Pro GIS Mode) & SIH Demo Presentation Engine
+ * + Municipal Command Center (Pro GIS Mode) 
  */
 
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
@@ -63,7 +63,19 @@ const MainPlatformLayout: React.FC = () => {
     isAuthenticated,
     hasCompletedOnboarding,
     activeNavTab,
+    syncCommunityFeedbacks,
   } = useFloodStore();
+
+  // Pull the latest community feedback from the server on load, and keep it fresh with a
+  // periodic re-sync. Without this, a signed-in session only ever shows feedback that was
+  // cached locally at login/register/post time — comments other users add later never show
+  // up until the next full re-login.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    syncCommunityFeedbacks();
+    const intervalId = window.setInterval(syncCommunityFeedbacks, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [isAuthenticated, syncCommunityFeedbacks]);
 
   // 1. REAL AUTHENTICATION GUARD
   if (!isAuthenticated) {
