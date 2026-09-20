@@ -14,8 +14,8 @@
 ![EPA SWMM](https://img.shields.io/badge/EPA_SWMM-5.2-0078D4?logoColor=white)
 ![License](https://img.shields.io/badge/Built_for-Smart_India_Hackathon-orange)
 
-> **Smart City hydroinformatics and AI-powered real-time flood intelligence for Barasat Municipality, West Bengal**
-> Physics-Informed Neural Operator (HydroGNN PINN) coupled with EPA SWMM 5.2 dynamic-wave hydraulics
+> **Pan-India Smart City hydroinformatics and AI-powered real-time flood intelligence platform**
+> Physics-Informed Neural Operator (HydroGNN PINN) coupled with EPA SWMM 5.2 dynamic-wave hydraulics · Piloted on Barasat Municipality, West Bengal
 
 **🔗 Live Deployment:** [jaldrishti-2-0.vercel.app](https://jaldrishti-2-0.vercel.app) &nbsp;|&nbsp; **API:** [jaldrishti-2-0-xued.onrender.com](https://jaldrishti-2-0-xued.onrender.com) &nbsp;|&nbsp; **Architecture Docs:** [ARCHITECTURE.md](./ARCHITECTURE.md)
 
@@ -39,9 +39,9 @@
 
 ## Executive Summary
 
-**JALDRISHTI** (Sanskrit/Bengali for *"Vision of Water"*) is an operational Smart City urban flood command platform built for real-time 0–3 hour inundation nowcasting, hydrodynamic explainability, emergency decision support, and flood-resilient multimodal routing.
+**JALDRISHTI** (Sanskrit/Bengali for *"Vision of Water"*) is an operational, city-agnostic Smart City urban flood command platform built for real-time 0–3 hour inundation nowcasting, hydrodynamic explainability, emergency decision support, and flood-resilient multimodal routing — designed to be deployed by **any municipality across India**, not tied to a single city's geography or dataset.
 
-Purpose-built for the flood-vulnerable topography of **Barasat Municipality** (North 24 Parganas, West Bengal), JALDRISHTI closes the gap between computationally expensive 2D hydraulic solvers and the speed required for real-time emergency dispatch:
+The platform's core hydrodynamic engine, routing logic, and decision-support layer are parameterized over standard municipal inputs (drainage network GIS, DEM/elevation data, rainfall telemetry, and road network topology), so onboarding a new city is a configuration and data-ingestion exercise rather than a rebuild. **Barasat Municipality (North 24 Parganas, West Bengal)** serves as the platform's flagship pilot and reference deployment — used throughout this documentation for concrete, ground-truthed examples — but the architecture, models, and UI are built to generalize nationally:
 
 - **18,500× inference acceleration** — the HydroGNN physics-informed graph neural network surrogate computes citywide water depths in **142 ms**, versus roughly **42 minutes** for a traditional 2D CFD solver.
 - **Physical law enforcement** — mass conservation is guaranteed to within **0.024% volume error**, coupling 1D underground sewer surcharge dynamics with 2D overland diffusion-wave flow.
@@ -52,13 +52,13 @@ Purpose-built for the flood-vulnerable topography of **Barasat Municipality** (N
 
 ## Problem Statement
 
-Barasat, like most rapidly urbanizing municipalities in West Bengal, floods repeatedly during the monsoon — not from river overflow, but from a combination of undersized/aging drainage conduits, low-lying pockets in the road network, and rainfall intensities that exceed the sewer network's design capacity. Today, three practical gaps make this hard to manage in real time:
+Rapidly urbanizing towns and cities across India — not just coastal or riverine ones — flood repeatedly during the monsoon, often not from river overflow but from a combination of undersized/aging drainage conduits, low-lying pockets in the road network, and rainfall intensities that exceed sewer network design capacity. This pattern repeats with local variation in hundreds of Indian municipalities. Today, three practical gaps make it hard to manage in real time, anywhere in the country:
 
 1. **No street-level early warning.** Municipal engineers and emergency services typically learn a road is impassable only after it has already flooded — by which point ambulances, fire tenders, and rescue teams are already committed to a route.
 2. **Flood models are too slow for dispatch decisions.** Physically accurate 2D hydraulic solvers (the kind engineers trust) take tens of minutes per run — far too slow to inform a decision that needs to be made in the next 5–10 minutes.
 3. **Predictions are opaque.** Even where a flood forecast exists, it rarely explains *why* a specific junction will flood, which makes it difficult for a drainage team to know whether the fix is a blocked manhole, a topographic dip, or simply rainfall exceeding capacity — and difficult for a citizen or dispatcher to trust a black-box number.
 
-JALDRISHTI is built to close these three gaps at once: a physics-informed model fast enough to run every few minutes, explainable enough for an engineer to act on, and connected directly to routing and dispatch so the forecast turns into an actionable decision rather than a static map.
+JALDRISHTI is built to close these three gaps at once, for **any Indian city willing to onboard its municipal GIS and telemetry data** — a physics-informed model fast enough to run every few minutes, explainable enough for an engineer to act on, and connected directly to routing and dispatch so the forecast turns into an actionable decision rather than a static map. Barasat Municipality is the platform's proof-of-concept deployment, chosen for its representative monsoon drainage-stress profile; the same pipeline is designed to onboard other municipalities without architectural changes.
 
 ---
 
@@ -67,7 +67,7 @@ JALDRISHTI is built to close these three gaps at once: a physics-informed model 
 | User | How JALDRISHTI helps |
 | :--- | :--- |
 | **Municipal disaster management cells / NDRF & SDRF teams** | Real-time, ward-level inundation forecasts and prioritized evacuation/rescue-staging recommendations. |
-| **Barasat Municipality drainage & public works engineers** | Explainable, junction-level flood attribution (sewer surcharge vs. topography vs. runoff) to target maintenance and infrastructure investment. |
+| **Municipal drainage & public works engineers** (any city) | Explainable, junction-level flood attribution (sewer surcharge vs. topography vs. runoff) to target maintenance and infrastructure investment. |
 | **Traffic police & city control rooms** | Advance notice of roads likely to become impassable, to plan closures and diversions before they flood rather than after. |
 | **Hospitals & emergency medical services** | Flood-safe ambulance routing that respects vehicle clearance limits and keeps green corridors open during active flooding. |
 | **General commuters and residents** | A consumer-facing safe-routing experience across vehicle types (car, motorbike, bicycle, pedestrian) that avoids flooded roads on a day-to-day basis, not just during major events. |
@@ -117,7 +117,7 @@ GIS digital twin visualization & real-time telemetry audit
 
 ### 1. 0–3 Hour Inundation Nowcasting
 - **Temporal resolution:** 15-minute intervals (T+0, T+15, T+30, T+45, T+60, T+90, T+120, T+180).
-- **Spatial resolution:** street-level 5-meter grid across all 35 wards of Barasat.
+- **Spatial resolution:** street-level 5-meter grid; deployed today across all 35 wards of the Barasat pilot, with the same grid resolution configurable for any onboarded city's ward boundaries.
 - **Physical accuracy:** governed by Saint-Venant 1D/2D mass and momentum conservation.
 
 ### 2. Deep Hydrodynamic Explainability — "Why will this street flood?"
@@ -130,7 +130,7 @@ For any selected street junction, flood drivers are decomposed into:
 ### 3. Municipal Decision Support Engine — "What should the city do now?"
 Generates actionable, department-specific advisories:
 - **NDRF / SDRF** — high-risk zone evacuation and rescue-boat staging.
-- **Barasat Drainage Team** — manhole desiltation and high-capacity dewatering-pump deployment.
+- **Municipal Drainage Team** (city-specific department) — manhole desiltation and high-capacity dewatering-pump deployment.
 - **Traffic Police** — dynamic road closures and bypass barricading.
 - **District Hospital** — emergency ambulance green corridors held below 8.5 cm water depth.
 
@@ -148,7 +148,7 @@ Vehicle profiles and their safe/impassable depth thresholds:
 Road costs are penalized dynamically as a function of predicted depth relative to the selected vehicle's clearance limit.
 
 ### 5. Critical Infrastructure Access Monitoring
-Real-time vulnerability assessment for:
+Real-time vulnerability assessment for critical infrastructure in any onboarded city — hospitals, fire stations, police stations, railway stations, and relief shelters. In the Barasat pilot deployment, this currently covers:
 - Barasat Govt. Medical College & District Hospital
 - Barasat Central Fire Station
 - Barasat Police Station & Traffic HQ
@@ -262,6 +262,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ---
 
 ## Smart India Hackathon Live Demonstration Script
+
+The steps below walk through the Barasat pilot deployment as a concrete, ground-truthed example — the same flow applies to any city once its municipal data is onboarded.
 
 1. **Nowcast scrubbing (T+0 to T+180 min)**
    Move the timeline slider from `NOW` to `T+45 MIN`. Observe inundation growth at the Jessore Road–Champadali More junction and storm-sewer surcharge in the 1D pipe network.
