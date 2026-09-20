@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+maplibregl.setWorkerUrl(`${import.meta.env.BASE_URL}maplibre/maplibre-gl-worker.mjs`);
 import {
   Layers,
   ZoomIn,
@@ -29,14 +30,56 @@ import {
 } from 'lucide-react';
 import { JaldrishtiApi } from '../services/api';
 import { CommunityFeedbackSection } from './CommunityFeedbackSection';
-import { GisDashboardResponse, StreetProjectionRecord, SurfaceFlowCell } from '../types';
+import { GisDashboardResponse, StreetProjectionRecord, SurfaceFlowCell, FloodHotspot } from '../types';
 import { FloodDashboardSummary } from './FloodDashboardSummary';
 import { getMapLibreStyle } from '../config/mapProviderConfig';
 import { simplifyDisplayGeometry } from '../utils/geometrySimplifier';
 
+import { useFloodStore } from '../store/useFloodStore';
+
 
 interface FloodMapProps {
   mode?: 'HOME' | 'SEARCH' | 'NAV';
+}
+
+// Dedicated route source 
+const ACTIVE_ROUTE_SOURCE = 'jaldrishti-active-route-src';
+const ACTIVE_ROUTE_GLOW = 'jaldrishti-active-route-glow';
+const ACTIVE_ROUTE_CORE = 'jaldrishti-active-route-core';
+const CANDIDATE_ROUTE_SOURCE = 'jaldrishti-candidate-route-src';
+const CANDIDATE_ROUTE_LAYER = 'jaldrishti-candidate-route-line';
+
+// Bounded retry window for route rendering 
+const ROUTE_RETRY_DELAYS_MS = [100, 250, 500, 1000, 1000, 1000, 1000];
+
+type RouteRenderStatus = 'rendered' | 'waiting' | 'idle' | 'failed' | 'busy';
+
+// Publishes production debug state. Safe to call at any time (even before the style exists).
+function writeRouteDebug(
+  map: maplibregl.Map | null,
+  mapLoaded: boolean,
+  hasActiveRoute: boolean,
+  selectedRouteIndex: number,
+  extra: Record<string, any> = {}
+) {
+  const safe = <T,>(fn: () => T): T | undefined => {
+    try {
+      return fn();
+    } catch {
+      return undefined;
+    }
+  };
+  (window as any).__JALDRISHTI_ROUTE_DEBUG = {
+    mapLoaded,
+    styleLoaded: map ? safe(() => map.isStyleLoaded()) : undefined,
+    hasActiveRoute,
+    selectedRouteIndex,
+    sourceExists: !!(map && safe(() => map.getSource(ACTIVE_ROUTE_SOURCE))),
+    glowExists: !!(map && safe(() => map.getLayer(ACTIVE_ROUTE_GLOW))),
+    coreExists: !!(map && safe(() => map.getLayer(ACTIVE_ROUTE_CORE))),
+    updatedAt: new Date().toISOString(),
+    ...extra,
+  };
 }
 
 // Perpendicular distance in meters from point P [lon, lat] to line segment AB [[ax, ay], [bx, by]]
@@ -96,6 +139,27 @@ function extractCoordsFromGeometry(geom: any): [number, number][] {
   if (geom.coordinates && Array.isArray(geom.coordinates)) return geom.coordinates;
   if (geom.geometry) return extractCoordsFromGeometry(geom.geometry);
   return [];
+}
+
+// Robust coordinate normalizer: accepts arrays or GeoJSON objects, drops invalid / out-of-range points
+function normalizeRouteCoordinates(geometry: any): [number, number][] {
+  const raw = extractCoordsFromGeometry(geometry);
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((coord: any) => {
+      return (
+        Array.isArray(coord) &&
+        coord.length >= 2 &&
+        Number.isFinite(Number(coord[0])) &&
+        Number.isFinite(Number(coord[1]))
+      );
+    })
+    .map((coord: any) => [Number(coord[0]), Number(coord[1])] as [number, number])
+    .filter(([lng, lat]) => {
+      return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+    });
 }
 
 // Convert route polyline geometry into array of line segments [[p1, p2], [p2, p3], ...]
@@ -401,6 +465,13 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
   const userGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
   const floodPointMarkersRef = useRef<maplibregl.Marker[]>([]);
 
+  // Route rendering bookkeeping (prevents idle -> render -> setData/fitBounds -> idle loops)
+  const lastFittedRouteKeyRef = useRef<string | null>(null);
+  const lastRouteDataKeyRef = useRef<string | null>(null);
+  const lastRouteResponseRef = useRef<any>(null);
+  const isRenderingRouteRef = useRef<boolean>(false);
+  const routeWaitingLoggedRef = useRef<boolean>(false);
+
   const [selectedFloodPoint, setSelectedFloodPoint] = useState<any | null>(null);
 
   const {
@@ -422,10 +493,22 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     nowcastData,
     setNowcastOffset,
     setNowcastData,
-  } = useFloodStore();
+  } = useFloodStore() as any; // route response carries extra fields (origin/destination/candidate_routes) not in SafeRouteResponse
+
+  // Latest GPS coords without forcing route renderer to re-subscribe on every GPS tick
+  const userGpsCoordsRef = useRef<any>(userGpsCoords);
+  userGpsCoordsRef.current = userGpsCoords;
+
+  // Turn-by-turn "driving mode" camera state: whether we've already snapped into the close
+  // nav view for this journey, and the previous GPS fix (used to compute a travel bearing
+  // so the camera can rotate like Google Maps rather than staying north-up).
+  const hasEnteredNavCameraRef = useRef<boolean>(false);
+  const prevNavGpsRef = useRef<[number, number] | null>(null);
 
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
   const [mapViewportVersion, setMapViewportVersion] = useState<number>(0);
+  // Bumped once when the map first goes idle so the flood/drainage overlay effect can re-run after tiles finish
+  const [mapIdleVersion, setMapIdleVersion] = useState<number>(0);
   const [hoveredHotspot, setHoveredHotspot] = useState<FloodHotspot | null>(null);
   const [hoveredInfra, setHoveredInfra] = useState<any | null>(null);
   const [dynamicPrediction, setDynamicPrediction] = useState<any | null>(null);
@@ -662,20 +745,32 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         resizeObserver.observe(mapContainerRef.current);
       }
 
-      map.on('load', () => {
+      // Map readiness: 'load' normally fires, but on some production builds it is delayed (tiles slow
+      // or blocked). So 'styledata' / 'idle' also mark the map ready as soon as the style JSON is parsed.
+      let readyHandled = false;
+      let animFrameId: number | null = null;
+      const onMove = () => {
+        if (animFrameId === null) {
+          animFrameId = requestAnimationFrame(() => {
+            setMapViewportVersion((v) => v + 1);
+            animFrameId = null;
+          });
+        }
+      };
+
+      const markMapReady = (reason: string) => {
+        if (readyHandled) return;
+        try {
+          if (!map.getStyle()) return; // style JSON not parsed yet
+        } catch {
+          return;
+        }
+        readyHandled = true;
+        console.log(`[JALDRISHTI] Map ready (${reason}), styleLoaded=${map.isStyleLoaded()}`);
         setMapLoaded(true);
         map.resize();
         map.resize();
-
-        let animFrameId: number | null = null;
-        map.on('move', () => {
-          if (animFrameId === null) {
-            animFrameId = requestAnimationFrame(() => {
-              setMapViewportVersion((v) => v + 1);
-              animFrameId = null;
-            });
-          }
-        });
+        map.on('move', onMove);
 
         // Initial Home Pin placement
         if (savedHome?.coordinates) {
@@ -699,6 +794,16 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           }
           homeMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(center).setPopup(popup).addTo(map);
         }
+      };
+
+      map.on('load', () => {
+        markMapReady('load');
+        setMapIdleVersion((v) => v + 1);
+      });
+      map.on('styledata', () => markMapReady('styledata'));
+      map.once('idle', () => {
+        markMapReady('idle');
+        setMapIdleVersion((v) => v + 1);
       });
 
       return () => {
@@ -713,6 +818,7 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
           // Ignore cleanup errors
         }
         mapInstanceRef.current = null;
+        setMapLoaded(false);
       };
     } catch (err) {
       console.warn('MapLibre GL initialization fallback:', err);
@@ -778,7 +884,9 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
     }
   }, [mode, savedHome, selectedFromLocation, dynamicPrediction, mapLoaded]);
 
-  // Update Dynamic Overlays (Flood polygon extent, drainage lines, safe & flooded routes)
+  // Update Dynamic Overlays (Flood polygon extent, drainage lines, mode-based marker cleanup, GPS marker)
+  // NOTE: The route polyline itself (source + layers), FROM/TO markers and route camera fit are handled
+  // by the dedicated renderActiveRoute effect further below.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLoaded || !map.isStyleLoaded()) return;
@@ -822,339 +930,607 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
       };
       (window as any).__floodExtentGeoJSON = floodExtentGeoJSON;
 
-    if (map.getSource('flood-extent-src')) {
-      (map.getSource('flood-extent-src') as maplibregl.GeoJSONSource).setData(floodExtentGeoJSON);
-    } else {
-      map.addSource('flood-extent-src', {
-        type: 'geojson',
-        data: floodExtentGeoJSON,
-      });
+      if (map.getSource('flood-extent-src')) {
+        (map.getSource('flood-extent-src') as maplibregl.GeoJSONSource).setData(floodExtentGeoJSON);
+      } else {
+        map.addSource('flood-extent-src', {
+          type: 'geojson',
+          data: floodExtentGeoJSON,
+        });
 
-      map.addLayer({
-        id: 'flood-extent-fill',
-        type: 'fill',
-        source: 'flood-extent-src',
-        paint: {
-          'fill-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'depth'],
-            3, '#3b82f6',   // BLUE (Low Risk < 5 cm)
-            10, '#eab308',  // YELLOW (Moderate Risk 5 - 15 cm)
-            20, '#f97316',  // ORANGE (High Risk 15 - 30 cm)
-            35, '#ef4444',  // RED (Very High Risk 30 - 45 cm)
-            50, '#a855f7',  // PURPLE (Critical Risk >= 45 cm)
-          ],
-          'fill-opacity': 0.45,
-        },
-      });
+        // Insert BELOW the active route (if it already exists) so route lines added earlier
+        // can never end up visually buried under a later-added flood overlay.
+        const routeFloor = map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined;
 
-      map.addLayer({
-        id: 'flood-extent-line',
-        type: 'line',
-        source: 'flood-extent-src',
-        paint: {
-          'line-color': '#ea580c',
-          'line-width': 1.5,
-        },
-      });
-    }
-
-    if (map.getLayer('flood-extent-fill')) {
-      map.setLayoutProperty('flood-extent-fill', 'visibility', layers.floodDepth ? 'visible' : 'none');
-      map.setLayoutProperty('flood-extent-line', 'visibility', layers.floodExtent ? 'visible' : 'none');
-    }
-
-    // 2. Add / Update 1D Stormwater Drainage Network
-    const drainageGeoJSON: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: { status: 'SURCHARGED', name: 'Jessore Main Storm Sewer' },
-          geometry: {
-            type: 'LineString',
-            coordinates: [[88.4805, 22.7160], [88.4845, 22.7180], [88.4870, 22.7240], [88.4895, 22.7275]],
+        map.addLayer({
+          id: 'flood-extent-fill',
+          type: 'fill',
+          source: 'flood-extent-src',
+          paint: {
+            'fill-color': [
+              'interpolate',
+              ['linear'],
+              ['get', 'depth'],
+              3, '#3b82f6',   // BLUE (Low Risk < 5 cm)
+              10, '#eab308',  // YELLOW (Moderate Risk 5 - 15 cm)
+              20, '#f97316',  // ORANGE (High Risk 15 - 30 cm)
+              35, '#ef4444',  // RED (Very High Risk 30 - 45 cm)
+              50, '#a855f7',  // PURPLE (Critical Risk >= 45 cm)
+            ],
+            'fill-opacity': 0.45,
           },
-        },
-        {
-          type: 'Feature',
-          properties: { status: 'NORMAL', name: 'NH-12 Western Bypass Culvert' },
-          geometry: {
-            type: 'LineString',
-            coordinates: [[88.4790, 22.7120], [88.4765, 22.7220], [88.4750, 22.7310]],
+        }, routeFloor);
+
+        map.addLayer({
+          id: 'flood-extent-line',
+          type: 'line',
+          source: 'flood-extent-src',
+          paint: {
+            'line-color': '#ea580c',
+            'line-width': 1.5,
           },
-        },
-      ],
-    };
+        }, routeFloor);
+      }
 
-    if (map.getSource('drainage-src')) {
-      (map.getSource('drainage-src') as maplibregl.GeoJSONSource).setData(drainageGeoJSON);
-    } else {
-      map.addSource('drainage-src', {
-        type: 'geojson',
-        data: drainageGeoJSON,
-      });
+      if (map.getLayer('flood-extent-fill')) {
+        map.setLayoutProperty('flood-extent-fill', 'visibility', layers.floodDepth ? 'visible' : 'none');
+        map.setLayoutProperty('flood-extent-line', 'visibility', layers.floodExtent ? 'visible' : 'none');
+      }
 
-      map.addLayer({
-        id: 'drainage-lines',
-        type: 'line',
-        source: 'drainage-src',
-        paint: {
-          'line-color': ['match', ['get', 'status'], 'SURCHARGED', '#c084fc', '#6366f1'],
-          'line-width': 3,
-        },
-      });
-    }
+      // 2. Add / Update 1D Stormwater Drainage Network
+      const drainageGeoJSON: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: { status: 'SURCHARGED', name: 'Jessore Main Storm Sewer' },
+            geometry: {
+              type: 'LineString',
+              coordinates: [[88.4805, 22.7160], [88.4845, 22.7180], [88.4870, 22.7240], [88.4895, 22.7275]],
+            },
+          },
+          {
+            type: 'Feature',
+            properties: { status: 'NORMAL', name: 'NH-12 Western Bypass Culvert' },
+            geometry: {
+              type: 'LineString',
+              coordinates: [[88.4790, 22.7120], [88.4765, 22.7220], [88.4750, 22.7310]],
+            },
+          },
+        ],
+      };
 
-    if (map.getLayer('drainage-lines')) {
-      map.setLayoutProperty('drainage-lines', 'visibility', layers.drainageNetwork ? 'visible' : 'none');
-    }
+      if (map.getSource('drainage-src')) {
+        (map.getSource('drainage-src') as maplibregl.GeoJSONSource).setData(drainageGeoJSON);
+      } else {
+        map.addSource('drainage-src', {
+          type: 'geojson',
+          data: drainageGeoJSON,
+        });
 
-        // 4. Mode-based Route, Marker & Water Accumulation Point Layering
-        if (mode === 'HOME') {
-          // Clear Search Markers & Route Layers when on Home View
-          if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
-          if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
-          floodPointMarkersRef.current.forEach((m) => m.remove());
-          floodPointMarkersRef.current = [];
+        map.addLayer({
+          id: 'drainage-lines',
+          type: 'line',
+          source: 'drainage-src',
+          paint: {
+            'line-color': ['match', ['get', 'status'], 'SURCHARGED', '#c084fc', '#6366f1'],
+            'line-width': 3,
+          },
+        }, map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined);
+      }
 
-          if (map.getSource('safe-route-src')) {
-            (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-          }
+      if (map.getLayer('drainage-lines')) {
+        map.setLayoutProperty('drainage-lines', 'visibility', layers.drainageNetwork ? 'visible' : 'none');
+      }
 
-          // Ensure Home Marker is rendered & Camera is at Home
-          if (savedHome?.coordinates) {
-            const [lat, lon] = savedHome.coordinates;
-            map.flyTo({ center: [lon, lat], zoom: 14.5, duration: 1200 });
-          }
-        } else if ((mode === 'SEARCH' || mode === 'NAV') && activeRouteResponse) {
-          // Hide Home Marker during Search/Nav Mode
-          if (homeMarkerRef.current) { homeMarkerRef.current.remove(); homeMarkerRef.current = null; }
+      // 4. Mode-based marker cleanup (route line, FROM/TO markers and route camera fit live in renderActiveRoute)
+      if (mode === 'HOME') {
+        // Clear Search Markers when on Home View
+        if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
+        if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
+        floodPointMarkersRef.current.forEach((m) => m.remove());
+        floodPointMarkersRef.current = [];
 
-          const allRoutes = [
-            activeRouteResponse.recommended_route,
-            ...(activeRouteResponse.alternative_routes || []),
-          ].filter(Boolean);
+        // Ensure Home Marker is rendered & Camera is at Home
+        if (savedHome?.coordinates) {
+          const [lat, lon] = savedHome.coordinates;
+          map.flyTo({ center: [lon, lat], zoom: 14.5, duration: 1200 });
+        }
+      } else if ((mode === 'SEARCH' || mode === 'NAV') && activeRouteResponse) {
+        // Hide Home Marker during Search/Nav Mode
+        if (homeMarkerRef.current) { homeMarkerRef.current.remove(); homeMarkerRef.current = null; }
 
-          const activeRoute = allRoutes[selectedRouteIndex] || allRoutes[0];
+        // Live GPS Position Marker + Camera Follow ("Driving Mode") - the camera zooms in
+        // close and follows/rotates with the user's live position, like Google Maps turn-by-
+        // turn nav, instead of leaving the overview camera untouched.
+        if (isLiveNavActive && userGpsCoords) {
+          const gpsLngLat: [number, number] = [userGpsCoords[1], userGpsCoords[0]];
 
-          // 1. Render Candidate Polylines for non-selected routes
-          const candidateFeatures: GeoJSON.Feature[] = [];
-          allRoutes.forEach((r: any, rIdx: number) => {
-            if (rIdx !== selectedRouteIndex && r.geometry) {
-              const geomCoords = extractCoordsFromGeometry(r.geometry);
-              const simplifiedGeom = simplifyDisplayGeometry(geomCoords, 2500);
-              candidateFeatures.push({
-                type: 'Feature',
-                properties: { route_id: r.route_id || `ALT-${rIdx}` },
-                geometry: { type: 'LineString', coordinates: simplifiedGeom },
-              });
+          // Derive a travel bearing from the previous fix so the camera can rotate to face
+          // the direction of travel. Skip tiny GPS jitter (< ~2m) so bearing doesn't flicker.
+          let bearing: number | undefined;
+          const prev = prevNavGpsRef.current;
+          if (prev) {
+            const [prevLat, prevLon] = prev;
+            const movedFarEnough = Math.hypot(userGpsCoords[0] - prevLat, userGpsCoords[1] - prevLon) > 0.00002;
+            if (movedFarEnough) {
+              const toRad = (d: number) => (d * Math.PI) / 180;
+              const toDeg = (r: number) => (r * 180) / Math.PI;
+              const dLon = toRad(userGpsCoords[1] - prevLon);
+              const lat1 = toRad(prevLat);
+              const lat2 = toRad(userGpsCoords[0]);
+              const y = Math.sin(dLon) * Math.cos(lat2);
+              const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+              bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
             }
-          });
+          }
+          prevNavGpsRef.current = [userGpsCoords[0], userGpsCoords[1]];
 
-          const candidatesGeoJSON: GeoJSON.FeatureCollection = {
-            type: 'FeatureCollection',
-            features: candidateFeatures,
-          };
-
-          if (map.getSource('candidate-routes-src')) {
-            (map.getSource('candidate-routes-src') as maplibregl.GeoJSONSource).setData(candidatesGeoJSON);
+          if (userGpsMarkerRef.current) {
+            userGpsMarkerRef.current.setLngLat(gpsLngLat);
           } else {
-            map.addSource('candidate-routes-src', {
-              type: 'geojson',
-              data: candidatesGeoJSON,
+            const el = document.createElement('div');
+            el.className = 'relative flex items-center justify-center';
+            el.innerHTML = `
+              <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span>
+              <div class="relative w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-xl flex items-center justify-center text-white text-[10px] font-bold">
+                🎯
+              </div>
+            `;
+            el.title = 'YOU ARE HERE (Live GPS Location)';
+            userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
+          }
+
+          if (!hasEnteredNavCameraRef.current) {
+            // First GPS fix after START JOURNEY: snap into a close, tilted "driving" view.
+            hasEnteredNavCameraRef.current = true;
+            map.easeTo({
+              center: gpsLngLat,
+              zoom: 17,
+              pitch: 55,
+              bearing: bearing ?? map.getBearing(),
+              duration: 1200,
             });
-
-            map.addLayer({
-              id: 'candidate-routes-line',
-              type: 'line',
-              source: 'candidate-routes-src',
-              paint: {
-                'line-color': '#64748b',
-                'line-width': 4,
-                'line-dasharray': [2, 1],
-                'line-opacity': 0.7,
-              },
+          } else {
+            // Subsequent fixes: smoothly follow the user, keeping the close nav zoom/pitch.
+            map.easeTo({
+              center: gpsLngLat,
+              bearing,
+              duration: 900,
             });
           }
-
-          if (map.getLayer('candidate-routes-line')) {
-            map.setLayoutProperty('candidate-routes-line', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-          }
-
-          if (activeRoute) {
-            const rawRouteCoords: [number, number][] = extractCoordsFromGeometry(activeRoute.geometry);
-            const routeCoords: [number, number][] = simplifyDisplayGeometry(rawRouteCoords, 2500);
-            const segments: any[] = activeRoute.segments || [];
-
-            // Build GeoJSON features for solid, uniform emerald green recommended route (#10b981)
-            const segmentFeatures: GeoJSON.Feature[] = segments
-              .filter((seg: any) => seg.start_coords && seg.end_coords)
-              .map((seg: any) => ({
-                type: 'Feature',
-                properties: {
-                  color: '#10b981',
-                  depth: seg.predicted_water_depth_cm || 0,
-                  risk: seg.risk_state || 'SAFE',
-                  label: seg.depth_label || 'SAFE',
-                },
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [seg.start_coords, seg.end_coords],
-                },
-              }));
-
-            if (segmentFeatures.length === 0 && routeCoords.length >= 2) {
-              segmentFeatures.push({
-                type: 'Feature',
-                properties: { color: '#10b981', depth: 0, risk: 'SAFE' },
-                geometry: { type: 'LineString', coordinates: routeCoords },
-              });
-            }
-
-            const routeSegmentsGeoJSON: GeoJSON.FeatureCollection = {
-              type: 'FeatureCollection',
-              features: segmentFeatures,
-            };
-
-            if (map.getSource('safe-route-src')) {
-              (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData(routeSegmentsGeoJSON);
-            } else {
-              map.addSource('safe-route-src', {
-                type: 'geojson',
-                data: routeSegmentsGeoJSON,
-              });
-
-              map.addLayer({
-                id: 'safe-route-glow',
-                type: 'line',
-                source: 'safe-route-src',
-                paint: {
-                  'line-color': '#10b981',
-                  'line-width': 14,
-                  'line-opacity': 0.35,
-                },
-              });
-
-              map.addLayer({
-                id: 'safe-route-core',
-                type: 'line',
-                source: 'safe-route-src',
-                layout: {
-                  'line-cap': 'round',
-                  'line-join': 'round',
-                },
-                paint: {
-                  'line-color': '#10b981',
-                  'line-width': 7,
-                  'line-opacity': 1.0,
-                },
-              });
-            }
-
-            if (map.getLayer('safe-route-glow')) {
-              map.setLayoutProperty('safe-route-glow', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-              map.moveLayer('safe-route-glow');
-            }
-
-            if (map.getLayer('safe-route-core')) {
-              map.setLayoutProperty('safe-route-core', 'visibility', layers.safeRoutes ? 'visible' : 'none');
-              map.moveLayer('safe-route-core');
-            }
-
-            // Render FROM and TO Markers
-            if (routeCoords.length >= 2) {
-              const originCoord = routeCoords[0];
-              const destCoord = routeCoords[routeCoords.length - 1];
-
-              if (fromMarkerRef.current) {
-                fromMarkerRef.current.setLngLat(originCoord);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'w-7 h-7 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
-                el.innerHTML = '🟢';
-                el.title = `FROM: ${activeRouteResponse.origin?.name || 'Origin'}`;
-                fromMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(originCoord).addTo(map);
-              }
-
-              if (toMarkerRef.current) {
-                toMarkerRef.current.setLngLat(destCoord);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'w-7 h-7 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
-                el.innerHTML = '🏁';
-                el.title = `TO: ${activeRouteResponse.destination?.name || 'Destination'}`;
-                toMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(destCoord).addTo(map);
-              }
-
-              // Clear legacy flood markers
-              floodPointMarkersRef.current.forEach((m) => m.remove());
-              floodPointMarkersRef.current = [];
-
-              // Camera fitBounds to the complete searched route journey when live navigation is not active or GPS location is pending
-              if (!isLiveNavActive || !userGpsCoords) {
-                const bounds = new maplibregl.LngLatBounds();
-                routeCoords.forEach((c) => bounds.extend(c));
-                map.fitBounds(bounds, {
-                  padding: { top: 70, bottom: 70, left: 70, right: 70 },
-                  duration: 1200,
-                  maxZoom: 16,
-                });
-              }
-            }
-
-            // Live GPS Position Marker Update ("YOU ARE HERE")
-            if (isLiveNavActive && userGpsCoords) {
-              const gpsLngLat: [number, number] = [userGpsCoords[1], userGpsCoords[0]];
-              if (userGpsMarkerRef.current) {
-                userGpsMarkerRef.current.setLngLat(gpsLngLat);
-              } else {
-                const el = document.createElement('div');
-                el.className = 'relative flex items-center justify-center';
-                el.innerHTML = `
-                  <span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span>
-                  <div class="relative w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-xl flex items-center justify-center text-white text-[10px] font-bold">
-                    🎯
-                  </div>
-                `;
-                el.title = 'YOU ARE HERE (Live GPS Location)';
-                userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
-              }
-
-              // Fit camera bounds to encompass complete route polyline AND live GPS marker so green route polyline never disappears
-              const bounds = new maplibregl.LngLatBounds();
-              routeCoords.forEach((c) => bounds.extend(c));
-              bounds.extend(gpsLngLat);
-              map.fitBounds(bounds, {
-                padding: { top: 70, bottom: 70, left: 70, right: 70 },
-                duration: 800,
-                maxZoom: 15,
-              });
-            } else if (userGpsMarkerRef.current) {
-              userGpsMarkerRef.current.remove();
-              userGpsMarkerRef.current = null;
-            }
-          }
-        } else {
-          // Clear Search Markers & Route Layers when activeRouteResponse is null
-          if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
-          if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
-          if (userGpsMarkerRef.current) { userGpsMarkerRef.current.remove(); userGpsMarkerRef.current = null; }
-          floodPointMarkersRef.current.forEach((m) => m.remove());
-          floodPointMarkersRef.current = [];
-
-          if (map.getSource('safe-route-src')) {
-            (map.getSource('safe-route-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
-          }
-          if (map.getSource('candidate-routes-src')) {
-            (map.getSource('candidate-routes-src') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
+        } else if (userGpsMarkerRef.current) {
+          userGpsMarkerRef.current.remove();
+          userGpsMarkerRef.current = null;
+          if (hasEnteredNavCameraRef.current) {
+            // Journey ended: hand the camera back to a normal top-down overview.
+            hasEnteredNavCameraRef.current = false;
+            prevNavGpsRef.current = null;
+            map.easeTo({ pitch: 0, bearing: 0, duration: 900 });
           }
         }
-      } catch (err) {
-        console.warn('Map overlay update warning:', err);
+      } else {
+        // Clear Search Markers when activeRouteResponse is null (route data itself is cleared by renderActiveRoute)
+        if (fromMarkerRef.current) { fromMarkerRef.current.remove(); fromMarkerRef.current = null; }
+        if (toMarkerRef.current) { toMarkerRef.current.remove(); toMarkerRef.current = null; }
+        if (userGpsMarkerRef.current) { userGpsMarkerRef.current.remove(); userGpsMarkerRef.current = null; }
+        floodPointMarkersRef.current.forEach((m) => m.remove());
+        floodPointMarkersRef.current = [];
       }
-    }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints]);
+    } catch (err) {
+      console.warn('Map overlay update warning:', err);
+    }
+  }, [mapLoaded, currentTimestep, layers, activeRouteResponse, selectedRouteIndex, isLiveNavActive, userGpsCoords, mode, nowcastData, nowcastSelectedOffset, memoizedValidatedPoints, mapIdleVersion]);
+
+  // ---------------------------------------------------------------------------
+  // AUTHORITATIVE active-route renderer (the ONLY code that draws the route line).
+  // Idempotent + retry-safe: it never permanently gives up because the MapLibre
+  // style/tiles were still loading. Draws the selected route, candidate routes and
+  // FROM/TO markers, keeps the route above flood/drainage layers, and only fits the
+  // camera once per route (after the source + layers are verified to exist).
+  // ---------------------------------------------------------------------------
+  const renderActiveRoute = React.useCallback((force: boolean = false): RouteRenderStatus => {
+    const map = mapInstanceRef.current;
+
+    // Always publish debug state, even when we are only waiting for the style.
+    writeRouteDebug(map, mapLoaded, !!activeRouteResponse, selectedRouteIndex);
+
+    if (!map) return 'waiting';
+    if (!mapLoaded) return 'waiting';
+
+    const noRoute = mode === 'HOME' || !activeRouteResponse;
+
+    // Nothing to draw and nothing drawn before: no need to touch the style at all.
+    if (noRoute && lastRouteDataKeyRef.current === null) return 'idle';
+
+    // ---- Style readiness -------------------------------------------------------
+    // isStyleLoaded() is false while ANY source is still fetching tiles, even though the
+    // style JSON is parsed and addSource/addLayer already work. So after the bounded retry
+    // window we "force" (force=true) and only require that the style JSON exists.
+    let styleReady = false;
+    try {
+      styleReady = map.isStyleLoaded();
+    } catch {
+      styleReady = false;
+    }
+    if (!styleReady && force) {
+      try {
+        styleReady = !!map.getStyle();
+      } catch {
+        styleReady = false;
+      }
+    }
+    if (!styleReady) {
+      if (!routeWaitingLoggedRef.current) {
+        routeWaitingLoggedRef.current = true;
+        console.log('[JALDRISHTI] Map style not ready, waiting for styledata/idle...');
+      }
+      return 'waiting';
+    }
+    if (routeWaitingLoggedRef.current) {
+      routeWaitingLoggedRef.current = false;
+      console.log('[JALDRISHTI] Map style ready, rendering active route...');
+    }
+
+    const emptyCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+    // ---- No route (or HOME mode): clear stale data ONCE (never setData on every idle -> loop) ----
+    if (noRoute) {
+      [ACTIVE_ROUTE_SOURCE, CANDIDATE_ROUTE_SOURCE].forEach((id) => {
+        const source = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+        if (source) source.setData(emptyCollection);
+      });
+      lastRouteDataKeyRef.current = null;
+      lastRouteResponseRef.current = null;
+      lastFittedRouteKeyRef.current = null;
+      return 'idle';
+    }
+
+    const allRoutes = [
+      activeRouteResponse.recommended_route,
+      ...(activeRouteResponse.alternative_routes || []),
+    ].filter(Boolean);
+
+    const activeRoute = allRoutes[selectedRouteIndex] || allRoutes[0];
+    if (!activeRoute) return 'idle';
+
+    const rawCoords = normalizeRouteCoordinates(activeRoute.geometry);
+
+    if (rawCoords.length < 2) {
+      console.warn('[JALDRISHTI] Active route has insufficient coordinates', activeRoute);
+      return 'idle';
+    }
+
+    const routeCoords = simplifyDisplayGeometry(rawCoords, 2500) as [number, number][];
+
+    if (!routeCoords || routeCoords.length < 2) {
+      console.warn('[JALDRISHTI] Simplified route has insufficient coordinates');
+      return 'idle';
+    }
+
+    // ---- Candidate (non-selected) routes ----
+    const candidateFeatures: GeoJSON.Feature[] = [];
+    allRoutes.forEach((r: any, rIdx: number) => {
+      if (rIdx === selectedRouteIndex || !r?.geometry) return;
+      const coords = normalizeRouteCoordinates(r.geometry);
+      if (coords.length < 2) return;
+      const simplified = simplifyDisplayGeometry(coords, 2500) as [number, number][];
+      if (!simplified || simplified.length < 2) return;
+      candidateFeatures.push({
+        type: 'Feature',
+        properties: { route_id: r.route_id || `ALT-${rIdx}` },
+        geometry: { type: 'LineString', coordinates: simplified },
+      });
+    });
+    const candidatesGeoJSON: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: candidateFeatures,
+    };
+
+    // ---- Active route features ----
+    const features: GeoJSON.Feature[] = [];
+    const segments = Array.isArray(activeRoute.segments) ? activeRoute.segments : [];
+
+    segments.forEach((seg: any) => {
+      if (
+        Array.isArray(seg.start_coords) &&
+        Array.isArray(seg.end_coords) &&
+        seg.start_coords.length >= 2 &&
+        seg.end_coords.length >= 2 &&
+        Number.isFinite(Number(seg.start_coords[0])) &&
+        Number.isFinite(Number(seg.start_coords[1])) &&
+        Number.isFinite(Number(seg.end_coords[0])) &&
+        Number.isFinite(Number(seg.end_coords[1]))
+      ) {
+        features.push({
+          type: 'Feature',
+          properties: {
+            color: '#10b981',
+            depth: Number(seg.predicted_water_depth_cm || 0),
+            risk: seg.risk_state || 'SAFE',
+            label: seg.depth_label || 'SAFE',
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [Number(seg.start_coords[0]), Number(seg.start_coords[1])],
+              [Number(seg.end_coords[0]), Number(seg.end_coords[1])],
+            ],
+          },
+        });
+      }
+    });
+
+    if (features.length === 0) {
+      features.push({
+        type: 'Feature',
+        properties: { color: '#10b981', depth: 0, risk: 'SAFE', label: 'SAFE' },
+        geometry: { type: 'LineString', coordinates: routeCoords },
+      });
+    }
+
+    const geojson: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+
+    // Only push new data into MapLibre when it actually changed
+    const dataKey = `${selectedRouteIndex}|${allRoutes.length}|${routeCoords.length}|${routeCoords[0]?.join(',')}|${routeCoords[routeCoords.length - 1]?.join(',')}|${features.length}|${candidateFeatures.length}`;
+    const dataChanged =
+      lastRouteDataKeyRef.current !== dataKey ||
+      lastRouteResponseRef.current !== activeRouteResponse;
+
+    const sourceMissing = !map.getSource(ACTIVE_ROUTE_SOURCE);
+    if (dataChanged || sourceMissing) {
+      console.log('[JALDRISHTI] Map style ready, rendering active route...');
+    }
+
+    // ---- SOURCES (add if missing, otherwise update data) ----
+    if (!map.getSource(ACTIVE_ROUTE_SOURCE)) {
+      map.addSource(ACTIVE_ROUTE_SOURCE, { type: 'geojson', data: geojson });
+    } else if (dataChanged) {
+      (map.getSource(ACTIVE_ROUTE_SOURCE) as maplibregl.GeoJSONSource).setData(geojson);
+    }
+
+    if (!map.getSource(CANDIDATE_ROUTE_SOURCE)) {
+      map.addSource(CANDIDATE_ROUTE_SOURCE, { type: 'geojson', data: candidatesGeoJSON });
+    } else if (dataChanged) {
+      (map.getSource(CANDIDATE_ROUTE_SOURCE) as maplibregl.GeoJSONSource).setData(candidatesGeoJSON);
+    }
+
+    // Active route is ALWAYS visible while debugging (removes safeRoutes as a possible cause).
+    const visibility = 'visible';
+    // Candidate (dashed gray) routes keep following the safe-routes toggle.
+    const candidateVisibility = layers.safeRoutes ? 'visible' : 'none';
+
+    // ---- CANDIDATE LAYER (dashed gray, kept below the active route) ----
+    if (!map.getLayer(CANDIDATE_ROUTE_LAYER)) {
+      map.addLayer(
+        {
+          id: CANDIDATE_ROUTE_LAYER,
+          type: 'line',
+          source: CANDIDATE_ROUTE_SOURCE,
+          layout: { visibility: candidateVisibility },
+          paint: {
+            'line-color': '#64748b',
+            'line-width': 4,
+            'line-dasharray': [2, 1],
+            'line-opacity': 0.7,
+          },
+        },
+        map.getLayer(ACTIVE_ROUTE_GLOW) ? ACTIVE_ROUTE_GLOW : undefined
+      );
+    } else {
+      map.setLayoutProperty(CANDIDATE_ROUTE_LAYER, 'visibility', candidateVisibility);
+    }
+
+    // ---- GLOW LAYER ----
+    if (!map.getLayer(ACTIVE_ROUTE_GLOW)) {
+      map.addLayer({
+        id: ACTIVE_ROUTE_GLOW,
+        type: 'line',
+        source: ACTIVE_ROUTE_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility },
+        paint: {
+          'line-color': '#10b981',
+          'line-width': 14,
+          'line-opacity': 0.35,
+        },
+      });
+    } else {
+      map.setLayoutProperty(ACTIVE_ROUTE_GLOW, 'visibility', visibility);
+    }
+
+    // ---- CORE LAYER ----
+    if (!map.getLayer(ACTIVE_ROUTE_CORE)) {
+      map.addLayer({
+        id: ACTIVE_ROUTE_CORE,
+        type: 'line',
+        source: ACTIVE_ROUTE_SOURCE,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility },
+        paint: {
+          'line-color': '#10b981',
+          'line-width': 7,
+          'line-opacity': 1,
+        },
+      });
+    } else {
+      map.setLayoutProperty(ACTIVE_ROUTE_CORE, 'visibility', visibility);
+    }
+
+    // ---- Verify the source + layers really exist before anything else (markers / fitBounds) ----
+    const sourceOk = !!map.getSource(ACTIVE_ROUTE_SOURCE);
+    const glowOk = !!map.getLayer(ACTIVE_ROUTE_GLOW);
+    const coreOk = !!map.getLayer(ACTIVE_ROUTE_CORE);
+    if (!sourceOk || !glowOk || !coreOk) {
+      console.error('[JALDRISHTI] Route source/layers missing after add', { sourceOk, glowOk, coreOk });
+      writeRouteDebug(map, mapLoaded, true, selectedRouteIndex, { status: 'failed' });
+      return 'failed';
+    }
+
+    // ---- Keep route above all flood / drainage layers (only when not already on top) ----
+    try {
+      const layerIds = map.getStyle().layers.map((l) => l.id);
+      const n = layerIds.length;
+      if (layerIds[n - 2] !== ACTIVE_ROUTE_GLOW || layerIds[n - 1] !== ACTIVE_ROUTE_CORE) {
+        if (map.getLayer(ACTIVE_ROUTE_GLOW)) map.moveLayer(ACTIVE_ROUTE_GLOW);
+        if (map.getLayer(ACTIVE_ROUTE_CORE)) map.moveLayer(ACTIVE_ROUTE_CORE);
+      }
+    } catch (e) {
+      console.warn('[JALDRISHTI] Could not move route layers', e);
+    }
+
+    // ---- FROM / TO markers (unchanged look, now from normalized coords) ----
+    const originCoord = routeCoords[0];
+    const destinationCoord = routeCoords[routeCoords.length - 1];
+
+    if (fromMarkerRef.current) {
+      fromMarkerRef.current.setLngLat(originCoord);
+    } else {
+      const el = document.createElement('div');
+      el.className = 'w-7 h-7 rounded-full bg-emerald-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
+      el.innerHTML = '🟢';
+      el.title = `FROM: ${activeRouteResponse.origin?.name || 'Origin'}`;
+      fromMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(originCoord).addTo(map);
+    }
+
+    if (toMarkerRef.current) {
+      toMarkerRef.current.setLngLat(destinationCoord);
+    } else {
+      const el = document.createElement('div');
+      el.className = 'w-7 h-7 rounded-full bg-rose-600 border-2 border-white text-white flex items-center justify-center shadow-lg font-bold text-xs cursor-pointer';
+      el.innerHTML = '🏁';
+      el.title = `TO: ${activeRouteResponse.destination?.name || 'Destination'}`;
+      toMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(destinationCoord).addTo(map);
+    }
+
+    // Clear legacy flood markers
+    floodPointMarkersRef.current.forEach((m) => m.remove());
+    floodPointMarkersRef.current = [];
+
+    // ---- Camera: fit ONLY when the route changes (after layers exist); never on idle; never during GPS navigation ----
+    const routeKey = `${selectedRouteIndex}-${routeCoords.length}-${routeCoords[0]?.join(',')}-${routeCoords[routeCoords.length - 1]?.join(',')}`;
+    if (lastFittedRouteKeyRef.current !== routeKey) {
+      lastFittedRouteKeyRef.current = routeKey;
+
+      if (!(isLiveNavActive && userGpsCoordsRef.current)) {
+        const bounds = new maplibregl.LngLatBounds();
+        routeCoords.forEach((c) => bounds.extend(c));
+        map.fitBounds(bounds, {
+          padding: { top: 70, bottom: 70, left: 70, right: 70 },
+          duration: 1200,
+          maxZoom: 16,
+        });
+      }
+    }
+
+    if (dataChanged) {
+      console.log('[JALDRISHTI] Active route rendered:', routeCoords.length, 'coordinates');
+    }
+
+    lastRouteDataKeyRef.current = dataKey;
+    lastRouteResponseRef.current = activeRouteResponse;
+
+    (window as any).__JALDRISHTI_ACTIVE_ROUTE_DEBUG = {
+      coordinateCount: routeCoords.length,
+      rawCoordinateCount: rawCoords.length,
+      featureCount: features.length,
+      routeCount: allRoutes.length,
+      selectedRouteIndex,
+      sourceExists: !!map.getSource(ACTIVE_ROUTE_SOURCE),
+      glowExists: !!map.getLayer(ACTIVE_ROUTE_GLOW),
+      coreExists: !!map.getLayer(ACTIVE_ROUTE_CORE),
+    };
+    writeRouteDebug(map, mapLoaded, true, selectedRouteIndex, { status: 'rendered', forced: force });
+
+    return 'rendered';
+  }, [
+    mapLoaded,
+    mode,
+    activeRouteResponse,
+    selectedRouteIndex,
+    isLiveNavActive,
+    layers.safeRoutes,
+  ]);
+
+  // Route rendering effect: attempts immediately, then retries inside a small BOUNDED window
+  // (100/250/500/1000/1000/1000/1000 ms ~ 4.9s, final attempt forced) and also re-attempts on
+  // MapLibre load / styledata / idle. No setInterval; all timers + listeners are cleaned up.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+
+    // Debug state is written even when we cannot render yet.
+    writeRouteDebug(map, mapLoaded, !!activeRouteResponse, selectedRouteIndex);
+
+    if (!map || !mapLoaded) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const runOnce = (force: boolean): RouteRenderStatus => {
+      if (cancelled) return 'busy';
+      // addSource/addLayer/moveLayer fire styledata synchronously -> guard against re-entrancy
+      if (isRenderingRouteRef.current) return 'busy';
+
+      isRenderingRouteRef.current = true;
+      try {
+        return renderActiveRoute(force);
+      } catch (e) {
+        console.warn('[JALDRISHTI] Route render failed', e);
+        return 'failed';
+      } finally {
+        isRenderingRouteRef.current = false;
+      }
+    };
+
+    const scheduleRetry = () => {
+      if (cancelled || timer !== null) return;
+      if (attempt >= ROUTE_RETRY_DELAYS_MS.length) return; // retry window exhausted (events may still trigger renders)
+
+      const delay = ROUTE_RETRY_DELAYS_MS[attempt];
+      const isLast = attempt === ROUTE_RETRY_DELAYS_MS.length - 1;
+      attempt += 1;
+      const n = attempt;
+
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled) return;
+        console.log(`[JALDRISHTI] Route render retry ${n}${isLast ? ' (forced)' : ''}`);
+        const status = runOnce(isLast);
+        if (status === 'waiting' || status === 'failed') scheduleRetry();
+      }, delay);
+    };
+
+    const onMapEvent = () => {
+      const status = runOnce(false);
+      if (status === 'waiting' || status === 'failed') scheduleRetry();
+    };
+
+    // 1) immediate attempt
+    const first = runOnce(false);
+    if (first === 'waiting' || first === 'failed') scheduleRetry();
+
+    // 2) temporary listeners
+    map.on('load', onMapEvent);
+    map.on('styledata', onMapEvent);
+    map.on('idle', onMapEvent);
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      map.off('load', onMapEvent);
+      map.off('styledata', onMapEvent);
+      map.off('idle', onMapEvent);
+    };
+  }, [
+    mapLoaded,
+    activeRouteResponse,
+    selectedRouteIndex,
+    isLiveNavActive,
+    layers.safeRoutes,
+    renderActiveRoute,
+  ]);
 
   const getInfraIcon = (type: string) => {
     switch (type) {

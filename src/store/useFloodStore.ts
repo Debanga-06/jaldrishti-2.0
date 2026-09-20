@@ -815,12 +815,45 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
 
   startNavigationTo: (from?: string, to?: string, vehicle: VehicleType = 'CAR') => {
     const state = get();
-    const fromLoc = from || state.savedHome?.locality || state.savedHome?.address || 'Bishnupur, Bankura';
-    const toLoc = to || (state.usualRoutes && state.usualRoutes.length > 0 ? state.usualRoutes[0].destinationName : 'Howrah Station');
+    const homeLoc = state.savedHome;
+    const workLoc = state.savedWork;
+
+    const fromLoc = from || homeLoc?.locality || homeLoc?.address || 'Bishnupur, Bankura';
+    const toLoc = to || workLoc?.locality || (state.usualRoutes && state.usualRoutes.length > 0 ? state.usualRoutes[0].destinationName : 'Howrah Station');
+
+    // Carry over exact saved coordinates when the caller didn't override the from/to text
+    // (i.e. this really is "navigate between my saved home/work"), so the route uses the
+    // user's precise saved location instead of re-geocoding the locality name later and
+    // possibly landing on a different nearby point with the same name.
+    const fromLocation: LocationSearchResult | null =
+      (!from && homeLoc?.coordinates && (homeLoc.coordinates[0] !== 0 || homeLoc.coordinates[1] !== 0))
+        ? {
+            display_name: homeLoc.address || homeLoc.locality,
+            locality: homeLoc.locality,
+            address: homeLoc.address,
+            lat: homeLoc.coordinates[0],
+            lon: homeLoc.coordinates[1],
+            source: 'saved_home',
+          }
+        : null;
+    const toLocation: LocationSearchResult | null =
+      (!to && workLoc?.coordinates && (workLoc.coordinates[0] !== 0 || workLoc.coordinates[1] !== 0))
+        ? {
+            display_name: workLoc.address || workLoc.locality,
+            locality: workLoc.locality,
+            address: workLoc.address,
+            lat: workLoc.coordinates[0],
+            lon: workLoc.coordinates[1],
+            source: 'saved_work',
+          }
+        : null;
+
     set({
       activeNavTab: 'SEARCH',
       searchQueryFrom: fromLoc,
       searchQueryTo: toLoc,
+      selectedFromLocation: fromLocation,
+      selectedToLocation: toLocation,
       selectedVehicleType: vehicle,
       selectedRouteIndex: 0,
       isLiveNavActive: false,
@@ -1543,4 +1576,3 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
 if (typeof window !== 'undefined') {
   (window as any).useFloodStore = useFloodStore;
 }
-

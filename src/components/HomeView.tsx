@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useFloodStore } from '../store/useFloodStore';
 import { FloodMap } from './FloodMap';
-import { JaldrishtiApi } from '../services/api';
+import { JaldrishtiApi, API_BASE_URL } from '../services/api';
 import { LocationSearch, LocationSearchResult } from './common/LocationSearch';
 
 export const HomeView: React.FC = () => {
@@ -80,7 +80,7 @@ export const HomeView: React.FC = () => {
         async (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          const res = await fetch(`/api/v1/home/geocode/reverse?lat=${lat}&lon=${lon}`)
+          const res = await fetch(`${API_BASE_URL}/home/geocode/reverse?lat=${lat}&lon=${lon}`)
             .then((r) => r.json())
             .catch(() => null);
 
@@ -239,7 +239,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 1. EARLY WARNING TOP ALERT CARD */}
+        {/* EARLY WARNING TOP ALERT CARD */}
         {isHomeSet && (
           <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
             <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -279,7 +279,7 @@ export const HomeView: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => startNavigationTo(savedHome.locality, usualRoutes?.[0]?.destinationName || 'Howrah Station')}
+                  onClick={() => startNavigationTo(undefined, undefined)}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all"
                 >
                   <span>BEST WAY HOME</span>
@@ -290,7 +290,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 2. GRID: WEATHER & FLOOD METRICS */}
+        {/* GRID: WEATHER & FLOOD METRICS */}
         {isHomeSet && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3">
@@ -347,7 +347,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 3. INTERACTIVE FLOOD MAP */}
+        {/* INTERACTIVE FLOOD MAP */}
         <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between px-2">
             <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">

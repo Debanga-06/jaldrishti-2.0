@@ -4,20 +4,26 @@
  */
 
 const getApiBaseUrl = (): string => {
+  // Use Vercel/production environment variable when available
   if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL;
+    return import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '');
   }
+
+  // Local development
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
+
     if (host === 'localhost' || host === '127.0.0.1') {
       return `http://${host}:8000/api/v1`;
     }
-    return '/api/v1';
   }
-  return 'http://127.0.0.1:8000/api/v1';
+
+  // Production backend
+  return 'https://jaldrishti-2-0-xued.onrender.com/api/v1';
 };
 
 const API_BASE_URL = getApiBaseUrl();
+export { API_BASE_URL };
 
 export const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') return null;
