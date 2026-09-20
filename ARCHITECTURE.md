@@ -2,6 +2,8 @@
 
 This document describes the end-to-end technical architecture of JALDRISHTI: how data flows from field sensors through the hydrodynamic core to the command-center frontend, and how each layer is composed.
 
+The architecture is **city-agnostic by design** — every layer below is parameterized over standard municipal inputs (drainage GIS, DEM, rainfall telemetry, road network) rather than hardcoded to one location. Data sources shown below (radar network, ward gauges) reflect the current Barasat Municipality pilot deployment; onboarding a new Indian city means pointing these same ingestion interfaces at that city's radar/gauge network and GIS data, not modifying the core models or services.
+
 For a product-level overview, see [`README.md`](./README.md).
 
 ---
@@ -28,7 +30,7 @@ For a product-level overview, see [`README.md`](./README.md).
 |                                 DATA INGESTION LAYER                                        |
 |  +------------------+   +------------------+   +--------------------+   +----------------+  |
 |  | DWR Doppler Radar|   | IoT Rain Gauges  |   | SWMM GIS Sewers    |   | 1m LiDAR DEM   |  |
-|  | (Kolkata Radar   |   | (Wards 1–35)     |   | (Conduits &         |   | (Cartosat)     |  |
+|  | (Regional Radar) |   | (Ward Gauges)    |   | (Conduits &         |   | (Cartosat)     |  |
 |  |  Network)        |   |                  |   |  Manholes)          |   |                |  |
 |  +--------+---------+   +--------+---------+   +----------+---------+   +--------+-------+  |
 +-----------|------------------------|-----------------------|-----------------------|---------+
@@ -66,15 +68,18 @@ For a product-level overview, see [`README.md`](./README.md).
 |  +--------------------------+  +---------------------------+  +---------------------------+ |
 +--------------------------------------------------------------------------------------------+
 ```
+*Data source labels above reflect the current Barasat pilot deployment; the ingestion layer accepts equivalent radar/gauge/GIS feeds from any onboarded city.*
 
 ---
 
 ## Layer 1 — Data Ingestion
 
+Sources below are shown as configured for the Barasat pilot. Onboarding a new city means registering its equivalent radar network, gauge network, sewer GIS export, and DEM against the same interfaces — no changes to the models or services in Layers 2–4.
+
 | Source | Protocol | Frequency | Purpose |
 | :--- | :--- | :--- | :--- |
-| DWR Doppler Radar (Kolkata Radar Network) | WMO-GRIB2 | 10-min sweep | Rainfall intensity field for nowcasting |
-| IoT rain gauges (Wards 1–35) | MQTT / LoRaWAN | 1–5 min | Ground-truth point rainfall, gauge calibration |
+| Doppler weather radar (Kolkata Radar Network, in the Barasat pilot) | WMO-GRIB2 | 10-min sweep | Rainfall intensity field for nowcasting |
+| IoT rain gauges (Wards 1–35, Barasat pilot) | MQTT / LoRaWAN | 1–5 min | Ground-truth point rainfall, gauge calibration |
 | SWMM GIS sewer network | PostGIS import | Static + event-driven | Conduit geometry, manhole locations, invert levels |
 | 1m LiDAR DEM (Cartosat) | Static raster | One-time / periodic resurvey | Terrain elevation for overland flow routing |
 
