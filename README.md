@@ -32,8 +32,7 @@
 7. [Technology Stack](#technology-stack)
 8. [Quickstart & Installation](#quickstart--installation)
 9. [REST API Reference](#rest-api-reference)
-10. [SIH Live Demonstration Script](#smart-india-hackathon-live-demonstration-script)
-11. [License & Compliance](#license--compliance)
+10. [License & Compliance](#license--compliance)
 
 ---
 
@@ -71,7 +70,7 @@ JALDRISHTI is built to close these three gaps at once, for **any Indian city wil
 | **Traffic police & city control rooms** | Advance notice of roads likely to become impassable, to plan closures and diversions before they flood rather than after. |
 | **Hospitals & emergency medical services** | Flood-safe ambulance routing that respects vehicle clearance limits and keeps green corridors open during active flooding. |
 | **General commuters and residents** | A consumer-facing safe-routing experience across vehicle types (car, motorbike, bicycle, pedestrian) that avoids flooded roads on a day-to-day basis, not just during major events. |
-| **Smart India Hackathon evaluators / smart-city researchers** | A fully auditable, scientifically validated (IoU, MAE, RMSE benchmarked) reference implementation of coupled 1D/2D urban flood nowcasting with provenance tracking. |
+| **Smart-city researchers & platform evaluators** | A fully auditable, scientifically validated (IoU, MAE, RMSE benchmarked) reference implementation of coupled 1D/2D urban flood nowcasting with provenance tracking. |
 
 ---
 
@@ -155,7 +154,7 @@ Real-time vulnerability assessment for critical infrastructure in any onboarded 
 - Barasat Junction Railway Station
 - District flood relief shelters
 
-### 6. Five Flagship SIH Demonstration Suites
+### 6. Five Flagship Capability Suites
 
 **1. Historical Flood Replay & Hydrodynamic Timeline**
 Six-stage physical evolution: `RAIN STARTS → RUNOFF → DRAINAGE STRESS → SURCHARGE → FLOODING → PEAK FLOOD`, clearly labeled `HISTORICAL REPLAY MODE` and run against verified benchmark datasets.
@@ -258,31 +257,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | `/api/v1/data-health` | GET | Live telemetry feed health matrix |
 | `/api/v1/model-health` | GET | Neural surrogate runtime and mass-conservation health |
 | `/api/v1/provenance/{id}` | GET | Cryptographic SHA-256 prediction audit record |
-
----
-
-## Smart India Hackathon Live Demonstration Script
-
-The steps below walk through the Barasat pilot deployment as a concrete, ground-truthed example — the same flow applies to any city once its municipal data is onboarded.
-
-1. **Nowcast scrubbing (T+0 to T+180 min)**
-   Move the timeline slider from `NOW` to `T+45 MIN`. Observe inundation growth at the Jessore Road–Champadali More junction and storm-sewer surcharge in the 1D pipe network.
-
-2. **Explainability demonstration**
-   Click any hotspot on the map, or open the **Explain** tab in the right dock. Show how the platform attributes flooding to **sewer surcharge (45%)** and **depression sink (35%)** rather than presenting a black-box prediction.
-
-3. **Emergency decision support**
-   Switch to the **Decisions** tab and walk through the prioritized recommendations: NDRF deployment, hospital green-corridor rerouting, and trailer-pump positioning.
-
-4. **Flood-safe multimodal routing**
-   Open **Safe Routing** in the top navigation.
-   - Select **Ambulance** — the route bypasses the inundated Champadali junction via the elevated NH-12 bypass (8.5 cm max depth).
-   - Switch to **Light Vehicle** — the same route is now flagged impassable, and a dry alternative is selected instead.
-
-5. **Scientific rigor & validation**
-   - **Validation Lab** — highlight the 84.6% IoU, 3.8 cm MAE, and confusion matrix.
-   - **Historical Replay** — run the six-stage causal chain from rain inception to peak flood.
-   - **Provenance** — show the SHA-256 cryptographic audit signature.
 
 ---
 
