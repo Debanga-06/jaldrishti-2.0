@@ -1,21 +1,39 @@
 # JALDRISHTI — Urban Flood Digital Twin & Emergency Mobility Command Platform
 
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
+![MapLibre GL](https://img.shields.io/badge/MapLibre_GL-396CB2?logo=mapbox&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![PostGIS](https://img.shields.io/badge/PostGIS-3.4-336791?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch_Geometric-EE4C2C?logo=pytorch&logoColor=white)
+![EPA SWMM](https://img.shields.io/badge/EPA_SWMM-5.2-0078D4?logoColor=white)
+![License](https://img.shields.io/badge/Built_for-Smart_India_Hackathon-orange)
+
 > **Smart City hydroinformatics and AI-powered real-time flood intelligence for Barasat Municipality, West Bengal**
 > Physics-Informed Neural Operator (HydroGNN PINN) coupled with EPA SWMM 5.2 dynamic-wave hydraulics
+
+**🔗 Live Deployment:** [jaldrishti-2-0.vercel.app](https://jaldrishti-2-0.vercel.app) &nbsp;|&nbsp; **API:** [jaldrishti-2-0-xued.onrender.com](https://jaldrishti-2-0-xued.onrender.com) &nbsp;|&nbsp; **Architecture Docs:** [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [System Architecture](#system-architecture)
-3. [End-to-End Operational Pipeline](#end-to-end-operational-pipeline)
-4. [Key Scientific Modules & Capabilities](#key-scientific-modules--capabilities)
-5. [Technology Stack](#technology-stack)
-6. [Quickstart & Installation](#quickstart--installation)
-7. [REST API Reference](#rest-api-reference)
-8. [SIH Live Demonstration Script](#smart-india-hackathon-live-demonstration-script)
-9. [License & Compliance](#license--compliance)
+2. [Problem Statement](#problem-statement)
+3. [Target Users](#target-users)
+4. [System Architecture](#system-architecture)
+5. [End-to-End Operational Pipeline](#end-to-end-operational-pipeline)
+6. [Key Scientific Modules & Capabilities](#key-scientific-modules--capabilities)
+7. [Technology Stack](#technology-stack)
+8. [Quickstart & Installation](#quickstart--installation)
+9. [REST API Reference](#rest-api-reference)
+10. [SIH Live Demonstration Script](#smart-india-hackathon-live-demonstration-script)
+11. [License & Compliance](#license--compliance)
 
 ---
 
@@ -32,53 +50,40 @@ Purpose-built for the flood-vulnerable topography of **Barasat Municipality** (N
 
 ---
 
+## Problem Statement
+
+Barasat, like most rapidly urbanizing municipalities in West Bengal, floods repeatedly during the monsoon — not from river overflow, but from a combination of undersized/aging drainage conduits, low-lying pockets in the road network, and rainfall intensities that exceed the sewer network's design capacity. Today, three practical gaps make this hard to manage in real time:
+
+1. **No street-level early warning.** Municipal engineers and emergency services typically learn a road is impassable only after it has already flooded — by which point ambulances, fire tenders, and rescue teams are already committed to a route.
+2. **Flood models are too slow for dispatch decisions.** Physically accurate 2D hydraulic solvers (the kind engineers trust) take tens of minutes per run — far too slow to inform a decision that needs to be made in the next 5–10 minutes.
+3. **Predictions are opaque.** Even where a flood forecast exists, it rarely explains *why* a specific junction will flood, which makes it difficult for a drainage team to know whether the fix is a blocked manhole, a topographic dip, or simply rainfall exceeding capacity — and difficult for a citizen or dispatcher to trust a black-box number.
+
+JALDRISHTI is built to close these three gaps at once: a physics-informed model fast enough to run every few minutes, explainable enough for an engineer to act on, and connected directly to routing and dispatch so the forecast turns into an actionable decision rather than a static map.
+
+---
+
+## Target Users
+
+| User | How JALDRISHTI helps |
+| :--- | :--- |
+| **Municipal disaster management cells / NDRF & SDRF teams** | Real-time, ward-level inundation forecasts and prioritized evacuation/rescue-staging recommendations. |
+| **Barasat Municipality drainage & public works engineers** | Explainable, junction-level flood attribution (sewer surcharge vs. topography vs. runoff) to target maintenance and infrastructure investment. |
+| **Traffic police & city control rooms** | Advance notice of roads likely to become impassable, to plan closures and diversions before they flood rather than after. |
+| **Hospitals & emergency medical services** | Flood-safe ambulance routing that respects vehicle clearance limits and keeps green corridors open during active flooding. |
+| **General commuters and residents** | A consumer-facing safe-routing experience across vehicle types (car, motorbike, bicycle, pedestrian) that avoids flooded roads on a day-to-day basis, not just during major events. |
+| **Smart India Hackathon evaluators / smart-city researchers** | A fully auditable, scientifically validated (IoU, MAE, RMSE benchmarked) reference implementation of coupled 1D/2D urban flood nowcasting with provenance tracking. |
+
+---
+
 ## System Architecture
 
-```
-                                JALDRISHTI ARCHITECTURE
+JALDRISHTI is built as four coupled layers: **data ingestion** (radar, IoT rain gauges, sewer GIS, LiDAR DEM) feeds a **hydrodynamic core** (EPA SWMM 5.2 for 1D sewers, coupled with the HydroGNN PINN surrogate for 2D overland flow), which drives a **PostGIS spatial analytics service** (routing cost graph, infrastructure risk, explainability, provenance), surfaced through a **React + MapLibre GL command-center frontend**.
 
-+--------------------------------------------------------------------------------------------+
-|                                 DATA INGESTION LAYER                                        |
-|  +------------------+   +------------------+   +--------------------+   +----------------+  |
-|  | DWR Doppler Radar|   | IoT Rain Gauges  |   | SWMM GIS Sewers    |   | 1m LiDAR DEM   |  |
-|  | (Kolkata Radar   |   | (Wards 1–35)     |   | (Conduits &         |   | (Cartosat)     |  |
-|  |  Network)        |   |                  |   |  Manholes)          |   |                |  |
-|  +--------+---------+   +--------+---------+   +----------+---------+   +--------+-------+  |
-+-----------|------------------------|-----------------------|-----------------------|---------+
-            v                        v                       v                       v
-+--------------------------------------------------------------------------------------------+
-|                        HYDRODYNAMIC CORE & ML SURROGATE                                    |
-|                                                                                              |
-|  1D Sewer Hydraulic Model (EPA SWMM 5.2)   <====  Coupled  ====>   2D Overland Flow          |
-|  • Saint-Venant 1D dynamic-wave equations                          HydroGNN PINN             |
-|  • Hydraulic grade line (HGL) surcharges                          • Physics-informed graph   |
-|  • Conduit choke & backwater outfalls                               neural network           |
-|                                                                     • Shallow-water diffusion |
-|                                                                     • 142 ms inundation field |
-+---------------------------------------------+----------------------------------------------+
-                                                |
-                                                v
-+--------------------------------------------------------------------------------------------+
-|                     POSTGIS & SPATIAL ANALYTICS SERVICE                                     |
-|  • Dynamic-cost Dijkstra / A* routing matrix (depth-penalty functions per vehicle class)    |
-|  • Critical infrastructure risk classifier (hospitals, fire stations, police, shelters)     |
-|  • Hydrodynamic explainability decomposer & SHA-256 provenance audit generator              |
-+---------------------------------------------+----------------------------------------------+
-                                                |
-                                                v
-+--------------------------------------------------------------------------------------------+
-|                    COMMAND CENTER FRONTEND (React + MapLibre GL)                            |
-|  +--------------------------+  +---------------------------+  +---------------------------+ |
-|  | GIS Digital Twin Map     |  | T+0 to T+180 min Timeline  |  | Multimodal Safe Routing   | |
-|  | (1D sewers + 2D depths)  |  | (15-min hyetograph scrub)  |  | (Ambulance, Fire, Boats)  | |
-|  +--------------------------+  +---------------------------+  +---------------------------+ |
-|  +--------------------------+  +---------------------------+  +---------------------------+ |
-|  | City Decision Support    |  | Hydro Validation Lab       |  | Historical Flood Replay   | |
-|  | ("What should the        |  | (Observed vs. predicted)   |  | (6-stage causal chain)    | |
-|  |  city do?")               |  |                            |  |                           | |
-|  +--------------------------+  +---------------------------+  +---------------------------+ |
-+--------------------------------------------------------------------------------------------+
 ```
+Data Ingestion → Hydrodynamic Core (SWMM + HydroGNN PINN) → PostGIS Spatial Analytics → Command Center Frontend
+```
+
+The full architecture — per-layer breakdown, deployment topology, and data-flow diagrams — is documented separately in **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
 ---
 
@@ -192,6 +197,8 @@ Full audit trail per prediction — prediction ID, timestamp, source datasets, m
 ---
 
 ## Quickstart & Installation
+
+> Already deployed and running live at [jaldrishti-2-0.vercel.app](https://jaldrishti-2-0.vercel.app) (frontend) and [jaldrishti-2-0-xued.onrender.com](https://jaldrishti-2-0-xued.onrender.com) (API). The steps below are for running your own local/self-hosted instance.
 
 ### Option 1 — Docker Compose (full stack, recommended)
 
