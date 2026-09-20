@@ -279,7 +279,7 @@ export const HomeView: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => startNavigationTo(savedHome.locality, usualRoutes?.[0]?.destinationName || 'Howrah Station')}
+                  onClick={() => startNavigationTo(undefined, undefined)}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all"
                 >
                   <span>BEST WAY HOME</span>
