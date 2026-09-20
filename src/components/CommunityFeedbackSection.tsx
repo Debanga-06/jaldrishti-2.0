@@ -29,6 +29,8 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
     deleteCommunityFeedbackReply,
     toggleLikeCommunityFeedbackReply,
     toggleDislikeCommunityFeedbackReply,
+    feedbackSyncError,
+    clearFeedbackSyncError,
   } = useFloodStore();
 
   const [text, setText] = useState('');
@@ -95,6 +97,21 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
           CURRENT / ACTIVE
         </span>
       </div>
+
+      {feedbackSyncError && (
+        <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-900 text-[11px] rounded-xl font-medium flex items-start space-x-2">
+          <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+          <span className="flex-1">{feedbackSyncError}</span>
+          <button
+            type="button"
+            onClick={clearFeedbackSyncError}
+            className="text-rose-500 hover:text-rose-800 shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Post Feedback Form */}
       <form onSubmit={handleSubmit} className="space-y-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
