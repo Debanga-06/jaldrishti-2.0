@@ -42,14 +42,14 @@ interface FloodMapProps {
   mode?: 'HOME' | 'SEARCH' | 'NAV';
 }
 
-// Dedicated route source / layer IDs (do not reuse for unrelated layers)
+// Dedicated route source 
 const ACTIVE_ROUTE_SOURCE = 'jaldrishti-active-route-src';
 const ACTIVE_ROUTE_GLOW = 'jaldrishti-active-route-glow';
 const ACTIVE_ROUTE_CORE = 'jaldrishti-active-route-core';
 const CANDIDATE_ROUTE_SOURCE = 'jaldrishti-candidate-route-src';
 const CANDIDATE_ROUTE_LAYER = 'jaldrishti-candidate-route-line';
 
-// Bounded retry window for route rendering (~4.9s total; last attempt is forced). No setInterval.
+// Bounded retry window for route rendering 
 const ROUTE_RETRY_DELAYS_MS = [100, 250, 500, 1000, 1000, 1000, 1000];
 
 type RouteRenderStatus = 'rendered' | 'waiting' | 'idle' | 'failed' | 'busy';
