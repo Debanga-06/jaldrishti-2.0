@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   ThumbsUp,
@@ -31,7 +31,15 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
     toggleDislikeCommunityFeedbackReply,
     feedbackSyncError,
     clearFeedbackSyncError,
+    syncCommunityFeedbacks,
   } = useFloodStore();
+
+  // Refresh this zone's feedback the moment its panel opens, rather than waiting for the
+  // app-wide periodic sync, so a comment a friend just posted shows up immediately.
+  useEffect(() => {
+    syncCommunityFeedbacks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spotId]);
 
   const [text, setText] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
