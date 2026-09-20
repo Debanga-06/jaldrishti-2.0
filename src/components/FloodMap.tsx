@@ -508,6 +508,12 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
   const userGpsCoordsRef = useRef<any>(userGpsCoords);
   userGpsCoordsRef.current = userGpsCoords;
 
+  // Turn-by-turn "driving mode" camera state: whether we've already snapped into the close
+  // nav view for this journey, and the previous GPS fix (used to compute a travel bearing
+  // so the camera can rotate like Google Maps rather than staying north-up).
+  const hasEnteredNavCameraRef = useRef<boolean>(false);
+  const prevNavGpsRef = useRef<[number, number] | null>(null);
+
   const [mapLoaded, setMapLoaded] = useState<boolean>(false);
   const [mapViewportVersion, setMapViewportVersion] = useState<number>(0);
   // Bumped once when the map first goes idle so the flood/drainage overlay effect can re-run after tiles finish
@@ -1043,9 +1049,32 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
         // Hide Home Marker during Search/Nav Mode
         if (homeMarkerRef.current) { homeMarkerRef.current.remove(); homeMarkerRef.current = null; }
 
-        // Live GPS Position Marker Update ("YOU ARE HERE") - no continuous fitBounds during navigation
+        // Live GPS Position Marker + Camera Follow ("Driving Mode") - the camera zooms in
+        // close and follows/rotates with the user's live position, like Google Maps turn-by-
+        // turn nav, instead of leaving the overview camera untouched.
         if (isLiveNavActive && userGpsCoords) {
           const gpsLngLat: [number, number] = [userGpsCoords[1], userGpsCoords[0]];
+
+          // Derive a travel bearing from the previous fix so the camera can rotate to face
+          // the direction of travel. Skip tiny GPS jitter (< ~2m) so bearing doesn't flicker.
+          let bearing: number | undefined;
+          const prev = prevNavGpsRef.current;
+          if (prev) {
+            const [prevLat, prevLon] = prev;
+            const movedFarEnough = Math.hypot(userGpsCoords[0] - prevLat, userGpsCoords[1] - prevLon) > 0.00002;
+            if (movedFarEnough) {
+              const toRad = (d: number) => (d * Math.PI) / 180;
+              const toDeg = (r: number) => (r * 180) / Math.PI;
+              const dLon = toRad(userGpsCoords[1] - prevLon);
+              const lat1 = toRad(prevLat);
+              const lat2 = toRad(userGpsCoords[0]);
+              const y = Math.sin(dLon) * Math.cos(lat2);
+              const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+              bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
+            }
+          }
+          prevNavGpsRef.current = [userGpsCoords[0], userGpsCoords[1]];
+
           if (userGpsMarkerRef.current) {
             userGpsMarkerRef.current.setLngLat(gpsLngLat);
           } else {
@@ -1060,9 +1089,34 @@ export const FloodMap: React.FC<FloodMapProps> = ({ mode = 'SEARCH' }) => {
             el.title = 'YOU ARE HERE (Live GPS Location)';
             userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(gpsLngLat).addTo(map);
           }
+
+          if (!hasEnteredNavCameraRef.current) {
+            // First GPS fix after START JOURNEY: snap into a close, tilted "driving" view.
+            hasEnteredNavCameraRef.current = true;
+            map.easeTo({
+              center: gpsLngLat,
+              zoom: 17,
+              pitch: 55,
+              bearing: bearing ?? map.getBearing(),
+              duration: 1200,
+            });
+          } else {
+            // Subsequent fixes: smoothly follow the user, keeping the close nav zoom/pitch.
+            map.easeTo({
+              center: gpsLngLat,
+              bearing,
+              duration: 900,
+            });
+          }
         } else if (userGpsMarkerRef.current) {
           userGpsMarkerRef.current.remove();
           userGpsMarkerRef.current = null;
+          if (hasEnteredNavCameraRef.current) {
+            // Journey ended: hand the camera back to a normal top-down overview.
+            hasEnteredNavCameraRef.current = false;
+            prevNavGpsRef.current = null;
+            map.easeTo({ pitch: 0, bearing: 0, duration: 900 });
+          }
         }
       } else {
         // Clear Search Markers when activeRouteResponse is null (route data itself is cleared by renderActiveRoute)
