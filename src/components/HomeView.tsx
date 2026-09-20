@@ -239,7 +239,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 1. EARLY WARNING TOP ALERT CARD */}
+        {/* EARLY WARNING TOP ALERT CARD */}
         {isHomeSet && (
           <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
             <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -290,7 +290,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 2. GRID: WEATHER & FLOOD METRICS */}
+        {/* GRID: WEATHER & FLOOD METRICS */}
         {isHomeSet && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3">
@@ -347,7 +347,7 @@ export const HomeView: React.FC = () => {
           </div>
         )}
 
-        {/* 3. INTERACTIVE FLOOD MAP */}
+        {/* INTERACTIVE FLOOD MAP */}
         <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between px-2">
             <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
