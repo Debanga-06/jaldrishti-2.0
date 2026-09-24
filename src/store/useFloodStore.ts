@@ -1318,12 +1318,14 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   // Persistent Community Feedback Actions
   syncCommunityFeedbacks: () => {
     api.getAllFeedbacks().then((fbs) => {
-      // Merge rather than blind-overwrite: keep server truth for every spot the server knows
-      // about, but don't wipe out a spot's local list if the server call returns partial data.
+      // Full replace, not merge: the server is the single source of truth. A merge that only
+      // overwrites spot-keys present in the response would let a local-only "phantom" entry
+      // (e.g. one that failed to save previously) survive forever whenever its spot happens to
+      // have no real feedback server-side — exactly what breaks replying to it.
       if (fbs && typeof fbs === 'object') {
-        set((state) => ({ communityFeedbacks: { ...state.communityFeedbacks, ...fbs } }));
+        set({ communityFeedbacks: fbs });
         try {
-          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(get().communityFeedbacks));
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(fbs));
         } catch (e) {}
       }
     }).catch(() => {});
@@ -1508,7 +1510,29 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
       return { communityFeedbacks: updatedAll };
     });
 
-    api.addReply(feedbackId, text.trim()).catch(() => {});
+    api.addReply(feedbackId, text.trim()).then(() => {
+      get().syncCommunityFeedbacks();
+    }).catch(() => {
+      // Most commonly: this parent feedback item only ever existed in local cache and was
+      // never actually saved server-side (404 on the backend), so the reply can't attach to
+      // anything real. Revert the optimistic reply instead of leaving a ghost that will
+      // silently vanish on the next sync, and tell the user why.
+      set((state) => {
+        const existing = state.communityFeedbacks[spotId] || [];
+        const revertedList = existing.map((f) => {
+          if (f.id !== feedbackId) return f;
+          return { ...f, replies: (f.replies || []).filter((r) => r.id !== newReply.id) };
+        });
+        const revertedAll = { ...state.communityFeedbacks, [spotId]: revertedList };
+        try {
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(revertedAll));
+        } catch (e) {}
+        return {
+          communityFeedbacks: revertedAll,
+          feedbackSyncError: 'Your reply could not be saved — the comment you replied to may be out of sync. Refreshing and trying again should fix it.',
+        };
+      });
+    });
   },
 
   deleteCommunityFeedbackReply: (spotId: string, feedbackId: string, replyId: string) => {
