@@ -59,11 +59,10 @@ def format_feedback_item(fb: dict, current_user_id: Optional[str] = None) -> dic
             "userName": rep.get("userName") or rep.get("userEmail", "").split("@")[0] or "Resident",
             "text": rep.get("text"),
             "timestamp": rep.get("timestamp"),
-            "likesCount": rep_likes,
-            "dislikesCount": rep_dislikes,
-            "userReaction": rep_user_reaction,
-            "userHasLiked": rep_user_reaction == "LIKE",
-            "userHasDisliked": rep_user_reaction == "DISLIKE"
+            "likes": rep_likes,
+            "likedBy": [r.get("userEmail") for r in rep_reactions if r.get("type") == "LIKE"],
+            "dislikes": rep_dislikes,
+            "dislikedBy": [r.get("userEmail") for r in rep_reactions if r.get("type") == "DISLIKE"],
         })
 
     return {
@@ -79,11 +78,10 @@ def format_feedback_item(fb: dict, current_user_id: Optional[str] = None) -> dic
         "timestamp": fb.get("timestamp"),
         "dateGroup": fb.get("dateGroup", "TODAY"),
         "status": fb.get("status", "ACTIVE"),
-        "likesCount": likes_count,
-        "dislikesCount": dislikes_count,
-        "userReaction": user_reaction,
-        "userHasLiked": user_reaction == "LIKE",
-        "userHasDisliked": user_reaction == "DISLIKE",
+        "likes": likes_count,
+        "likedBy": [r.get("userEmail") for r in reactions if r.get("type") == "LIKE"],
+        "dislikes": dislikes_count,
+        "dislikedBy": [r.get("userEmail") for r in reactions if r.get("type") == "DISLIKE"],
         "replies": formatted_replies
     }
 
@@ -220,7 +218,7 @@ async def toggle_feedback_reaction(feedback_id: str, payload: ToggleReactionPayl
     # Check if user was toggling off the exact same reaction
     existing_reaction = next((r.get("type") for r in reactions if r.get("userId") == user_id), None)
     if existing_reaction != target_type:
-        new_reactions.append({"userId": user_id, "type": target_type})
+        new_reactions.append({"userId": user_id, "userEmail": user["email"], "type": target_type})
         
     await db.feedbacks.update_one(
         {"feedbackId": feedback_id},
@@ -250,7 +248,7 @@ async def toggle_reply_reaction(feedback_id: str, reply_id: str, payload: Toggle
             new_rep_reactions = [r for r in rep_reactions if r.get("userId") != user_id]
             existing_type = next((r.get("type") for r in rep_reactions if r.get("userId") == user_id), None)
             if existing_type != target_type:
-                new_rep_reactions.append({"userId": user_id, "type": target_type})
+                new_rep_reactions.append({"userId": user_id, "userEmail": user["email"], "type": target_type})
             rep["reactions"] = new_rep_reactions
             break
 

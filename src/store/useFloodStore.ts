@@ -204,7 +204,17 @@ interface FloodStoreState {
 
   // Persistent Community Feedback for Active Waterlogging Spots
   communityFeedbacks: Record<string, CommunityFeedback[]>;
+  // True once a backend login/register attempt has failed for the current locally-authenticated
+  // account, meaning writes (feedback, profile updates) will 401 silently until re-synced.
+  authBackendSyncFailed: boolean;
+  feedbackSyncError: string | null;
+  clearFeedbackSyncError: () => void;
   addCommunityFeedback: (spotId: string, text: string, photoUrl?: string | null) => void;
+  // Re-pulls all community feedback from the server and merges it into local state, so
+  // comments other users posted (on this or any other device) actually show up here —
+  // without this, the UI only ever shows whatever was cached locally after this device's
+  // last login/register/post.
+  syncCommunityFeedbacks: () => void;
   deleteCommunityFeedback: (spotId: string, feedbackId: string) => void;
   toggleLikeCommunityFeedback: (spotId: string, feedbackId: string) => void;
   toggleDislikeCommunityFeedback: (spotId: string, feedbackId: string) => void;
@@ -374,6 +384,7 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
 
       // Async backend MongoDB Atlas sync
       api.login(email, pass).then((res) => {
+        set({ authBackendSyncFailed: false });
         if (res?.user) {
           if (res.user.savedHome) set({ savedHome: res.user.savedHome });
           if (res.user.savedWork) set({ savedWork: res.user.savedWork });
@@ -384,10 +395,18 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
         }).catch(() => {});
       }).catch(() => {
         api.register(email, pass, name).then((res) => {
+          set({ authBackendSyncFailed: false });
           api.getAllFeedbacks().then((fbs) => {
             if (fbs && Object.keys(fbs).length > 0) set({ communityFeedbacks: fbs });
           }).catch(() => {});
-        }).catch(() => {});
+        }).catch(() => {
+          // Both backend login AND register failed for this account: this account's local
+          // password no longer matches what the backend has on record. The UI still shows
+          // it as "logged in" locally, but every backend write (feedback, profile saves) will
+          // 401 silently from here on until the user re-authenticates with the correct
+          // server-side password. Surface this instead of failing invisibly later.
+          set({ authBackendSyncFailed: true });
+        });
       });
 
       return true;
@@ -634,6 +653,9 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
         }
       })()
     : {},
+  authBackendSyncFailed: false,
+  feedbackSyncError: null,
+  clearFeedbackSyncError: () => set({ feedbackSyncError: null }),
 
   // Default values
   viewExperience: 'COMMAND_CENTER',
@@ -1294,6 +1316,20 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   setSelectedPredictionId: (id: string | null) => set({ selectedPredictionId: id }),
 
   // Persistent Community Feedback Actions
+  syncCommunityFeedbacks: () => {
+    api.getAllFeedbacks().then((fbs) => {
+      // Full replace, not merge: the server is the single source of truth. A merge that only
+      // overwrites spot-keys present in the response would let a local-only "phantom" entry
+      // (e.g. one that failed to save previously) survive forever whenever its spot happens to
+      // have no real feedback server-side — exactly what breaks replying to it.
+      if (fbs && typeof fbs === 'object') {
+        set({ communityFeedbacks: fbs });
+        try {
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(fbs));
+        } catch (e) {}
+      }
+    }).catch(() => {});
+  },
   addCommunityFeedback: (spotId: string, text: string, photoUrl?: string | null) => {
     if (!spotId || (!text.trim() && !photoUrl)) return;
     const currentUserEmail = get().userEmail || 'user@jaldrishti.org';
@@ -1326,7 +1362,25 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
       api.getAllFeedbacks().then((fbs) => {
         if (fbs && Object.keys(fbs).length > 0) set({ communityFeedbacks: fbs });
       }).catch(() => {});
-    }).catch(() => {});
+    }).catch(() => {
+      // The optimistic local entry above never actually reached the server — remove it so the
+      // UI doesn't show a "posted" comment that will silently vanish on next refresh, and tell
+      // the user why instead of failing invisibly.
+      set((state) => {
+        const existing = state.communityFeedbacks[spotId] || [];
+        const revertedList = existing.filter((f) => f.id !== newFeedback.id);
+        const revertedAll = { ...state.communityFeedbacks, [spotId]: revertedList };
+        try {
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(revertedAll));
+        } catch (e) {}
+        return {
+          communityFeedbacks: revertedAll,
+          feedbackSyncError: get().authBackendSyncFailed
+            ? 'Your feedback could not be saved because your session is out of sync with the server. Please log out and log back in, then try again.'
+            : 'Your feedback could not be saved right now. Please check your connection and try again.',
+        };
+      });
+    });
   },
 
   deleteCommunityFeedback: (spotId: string, feedbackId: string) => {
@@ -1456,7 +1510,29 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
       return { communityFeedbacks: updatedAll };
     });
 
-    api.addReply(feedbackId, text.trim()).catch(() => {});
+    api.addReply(feedbackId, text.trim()).then(() => {
+      get().syncCommunityFeedbacks();
+    }).catch(() => {
+      // Most commonly: this parent feedback item only ever existed in local cache and was
+      // never actually saved server-side (404 on the backend), so the reply can't attach to
+      // anything real. Revert the optimistic reply instead of leaving a ghost that will
+      // silently vanish on the next sync, and tell the user why.
+      set((state) => {
+        const existing = state.communityFeedbacks[spotId] || [];
+        const revertedList = existing.map((f) => {
+          if (f.id !== feedbackId) return f;
+          return { ...f, replies: (f.replies || []).filter((r) => r.id !== newReply.id) };
+        });
+        const revertedAll = { ...state.communityFeedbacks, [spotId]: revertedList };
+        try {
+          localStorage.setItem('jaldrishti_community_feedbacks', JSON.stringify(revertedAll));
+        } catch (e) {}
+        return {
+          communityFeedbacks: revertedAll,
+          feedbackSyncError: 'Your reply could not be saved — the comment you replied to may be out of sync. Refreshing and trying again should fix it.',
+        };
+      });
+    });
   },
 
   deleteCommunityFeedbackReply: (spotId: string, feedbackId: string, replyId: string) => {
