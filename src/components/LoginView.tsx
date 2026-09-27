@@ -137,7 +137,7 @@ export const LoginView: React.FC = () => {
         {/* Safety Note */}
         <div className="flex items-center space-x-2 text-[11px] text-slate-400 justify-center">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Barasat Municipality Verified Portal</span>
+          <span>Stay safe. Avoid flooded and restricted areas.</span>
         </div>
       </div>
     </div>
