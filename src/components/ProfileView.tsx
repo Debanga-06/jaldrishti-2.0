@@ -16,6 +16,7 @@ import { SavedLocation } from '../types';
 
 export const ProfileView: React.FC = () => {
   const {
+    isAuthenticated,
     userEmail,
     savedHome,
     savedWork,
@@ -24,6 +25,7 @@ export const ProfileView: React.FC = () => {
     notificationSettings,
     setNotificationSettings,
     logout,
+    requireAuth,
   } = useFloodStore();
 
   const [isEditingHome, setIsEditingHome] = useState(false);
@@ -59,6 +61,25 @@ export const ProfileView: React.FC = () => {
 
   return (
     <div id="jaldrishti-profile-view" className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 select-none">
+      {!isAuthenticated ? (
+        <div className="max-w-md mx-auto px-4 pt-24 text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-md shadow-blue-600/20">
+            <UserCheck className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900">Sign in to view your profile</h2>
+          <p className="text-sm text-slate-500">
+            Save your home and work locations, manage notification preferences, and pick up where you left off — all tied to your account.
+          </p>
+          <button
+            type="button"
+            onClick={() => requireAuth('Sign in to view and manage your profile.')}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-blue-600/20 transition-all"
+          >
+            Sign In / Register
+          </button>
+        </div>
+      ) : (
+      <>
       {/* Header Banner */}
       <div className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
@@ -294,6 +315,8 @@ export const ProfileView: React.FC = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
