@@ -2,7 +2,7 @@
  * JALDRISHTI - Flood-Aware Navigation & Early Warning Platform
  * Tagline: "Know the Flood Before You Reach It."
  * Supports Primary Consumer Experience (Home, Search, Alerts, Profile)
- * + Municipal Command Center (Pro GIS Mode) 
+ * + Municipal Command Center (Pro GIS Mode) & SIH Demo Presentation Engine
  */
 
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
@@ -55,7 +55,7 @@ const queryClient = new QueryClient({
   },
 });
 
-import { LoginView } from './components/LoginView';
+import { AuthPromptModal } from './components/AuthPromptModal';
 import { OnboardingView } from './components/OnboardingView';
 
 const MainPlatformLayout: React.FC = () => {
@@ -77,13 +77,11 @@ const MainPlatformLayout: React.FC = () => {
     return () => window.clearInterval(intervalId);
   }, [isAuthenticated, syncCommunityFeedbacks]);
 
-  // 1. REAL AUTHENTICATION GUARD
-  if (!isAuthenticated) {
-    return <LoginView />;
-  }
-
-  // 2. LOCATION & HOME SETUP ONBOARDING GUARD
-  if (!hasCompletedOnboarding) {
+  // Guests can browse the whole app without an account — individual features (posting
+  // feedback, saving home/work, live navigation) call store.requireAuth() themselves and
+  // open the AuthPromptModal over the current page instead of the site forcing a login wall
+  // up front. Home/work onboarding only applies once someone is actually signed in.
+  if (isAuthenticated && !hasCompletedOnboarding) {
     return <OnboardingView />;
   }
 
@@ -98,6 +96,7 @@ const MainPlatformLayout: React.FC = () => {
         {activeNavTab === 'PROFILE' && <ProfileView />}
       </main>
       <CitizenReportModal />
+      <AuthPromptModal />
     </div>
   );
 };
