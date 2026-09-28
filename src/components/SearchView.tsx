@@ -67,6 +67,7 @@ export const SearchView: React.FC = () => {
     startLiveNav,
     stopLiveNav,
     updateLiveGpsState,
+    requireAuth,
   } = useFloodStore();
 
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
@@ -767,6 +768,7 @@ export const SearchView: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (!requireAuth('Sign in to start live GPS navigation.')) return;
                         handleSelectRoute(idx);
                         startLiveNav();
                       }}
@@ -953,4 +955,3 @@ export const SearchView: React.FC = () => {
     </div>
   );
 };
-
