@@ -9,7 +9,7 @@ import { Home, Search, Bell, User, Navigation } from 'lucide-react';
 import { useFloodStore } from '../store/useFloodStore';
 
 export const Navbar: React.FC = () => {
-  const { activeNavTab, setNavTab, consumerAlerts } = useFloodStore();
+  const { activeNavTab, setNavTab, consumerAlerts, isAuthenticated, requireAuth } = useFloodStore();
 
   const unreadAlertsCount = consumerAlerts.filter((a) => a.dateGroup === 'TODAY').length;
 
@@ -102,6 +102,16 @@ export const Navbar: React.FC = () => {
               <span>PROFILE</span>
             </button>
           </nav>
+
+          {!isAuthenticated && (
+            <button
+              onClick={() => requireAuth('Sign in to save your home, work, and preferences.')}
+              className="hidden md:flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 transition-all"
+            >
+              <User className="w-4 h-4" />
+              <span>SIGN IN</span>
+            </button>
+          )}
         </div>
       </div>
 
