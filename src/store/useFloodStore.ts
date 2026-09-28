@@ -36,6 +36,15 @@ interface FloodStoreState {
   logout: () => void;
   completeOnboarding: () => void;
 
+  // Guest-browsing auth gate: the site itself is browsable without an account, but specific
+  // features (posting feedback, saving home/work, live navigation) require sign-in. Instead of
+  // blocking the whole app behind a login wall, actions call requireAuth() first; if the user
+  // isn't signed in it opens a sign-in/register modal (authPromptOpen) and the action bails out.
+  authPromptOpen: boolean;
+  authPromptReason: string | null;
+  requireAuth: (reason?: string) => boolean;
+  closeAuthPrompt: () => void;
+
   // Navigation & Consumer Platform Experience
   activeNavTab: AppNavTab;
   consumerSearchMode: ConsumerSearchMode;
@@ -380,6 +389,8 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
         savedWork: userWork,
         notificationSettings: userNotifs,
         hasCompletedOnboarding: true,
+        authPromptOpen: false,
+        authPromptReason: null,
       });
 
       // Async backend MongoDB Atlas sync
@@ -465,6 +476,8 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
         savedWork: newWork,
         notificationSettings: newNotifs,
         hasCompletedOnboarding: true,
+        authPromptOpen: false,
+        authPromptReason: null,
       });
 
       // Async MongoDB registration
@@ -485,6 +498,15 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
     api.logout().catch(() => {});
     set({ isAuthenticated: false, activeNavTab: 'HOME' });
   },
+
+  authPromptOpen: false,
+  authPromptReason: null,
+  requireAuth: (reason?: string) => {
+    if (get().isAuthenticated) return true;
+    set({ authPromptOpen: true, authPromptReason: reason || null });
+    return false;
+  },
+  closeAuthPrompt: () => set({ authPromptOpen: false, authPromptReason: null }),
 
   completeOnboarding: () => {
     try {
