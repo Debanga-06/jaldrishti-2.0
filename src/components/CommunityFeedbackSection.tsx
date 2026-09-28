@@ -32,6 +32,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
     feedbackSyncError,
     clearFeedbackSyncError,
     syncCommunityFeedbacks,
+    requireAuth,
   } = useFloodStore();
 
   // Refresh this zone's feedback the moment its panel opens, rather than waiting for the
@@ -72,6 +73,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() && !photoUrl) return;
+    if (!requireAuth('Sign in to post community flood reports and feedback.')) return;
     addCommunityFeedback(spotId, text, photoUrl);
     setText('');
     setPhotoUrl(null);
@@ -80,6 +82,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
 
   const handleAddReply = (feedbackId: string) => {
     if (!replyText.trim()) return;
+    if (!requireAuth('Sign in to reply to community feedback.')) return;
     addCommunityFeedbackReply(spotId, feedbackId, replyText);
     setReplyText('');
     setActiveReplyId(null);
@@ -231,7 +234,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
                   <div className="flex items-center space-x-1.5">
                     <button
                       type="button"
-                      onClick={() => toggleLikeCommunityFeedback(spotId, fb.id)}
+                      onClick={() => { if (requireAuth('Sign in to like community feedback.')) toggleLikeCommunityFeedback(spotId, fb.id); }}
                       className={`flex items-center space-x-1 px-2 py-0.5 rounded border transition-colors ${
                         hasLiked
                           ? 'bg-blue-50 border-blue-200 text-blue-600 font-bold'
@@ -245,7 +248,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
 
                     <button
                       type="button"
-                      onClick={() => toggleDislikeCommunityFeedback(spotId, fb.id)}
+                      onClick={() => { if (requireAuth('Sign in to react to community feedback.')) toggleDislikeCommunityFeedback(spotId, fb.id); }}
                       className={`flex items-center space-x-1 px-2 py-0.5 rounded border transition-colors ${
                         hasDisliked
                           ? 'bg-rose-50 border-rose-200 text-rose-600 font-bold'
@@ -303,7 +306,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
                           <div className="flex items-center space-x-1.5 pt-0.5 text-[9px]">
                             <button
                               type="button"
-                              onClick={() => toggleLikeCommunityFeedbackReply(spotId, fb.id, reply.id)}
+                              onClick={() => { if (requireAuth('Sign in to react to replies.')) toggleLikeCommunityFeedbackReply(spotId, fb.id, reply.id); }}
                               className={`flex items-center space-x-0.5 px-1.5 py-0.5 rounded border transition-colors ${
                                 replyHasLiked
                                   ? 'bg-blue-50 border-blue-200 text-blue-600 font-bold'
@@ -317,7 +320,7 @@ export const CommunityFeedbackSection: React.FC<CommunityFeedbackSectionProps> =
 
                             <button
                               type="button"
-                              onClick={() => toggleDislikeCommunityFeedbackReply(spotId, fb.id, reply.id)}
+                              onClick={() => { if (requireAuth('Sign in to react to replies.')) toggleDislikeCommunityFeedbackReply(spotId, fb.id, reply.id); }}
                               className={`flex items-center space-x-0.5 px-1.5 py-0.5 rounded border transition-colors ${
                                 replyHasDisliked
                                   ? 'bg-rose-50 border-rose-200 text-rose-600 font-bold'
