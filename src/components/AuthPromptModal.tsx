@@ -1,41 +1,72 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, X, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, ArrowRight, X, ShieldCheck, MailCheck } from 'lucide-react';
 import { useFloodStore } from '../store/useFloodStore';
 
 /**
  * Shown over the existing page (instead of replacing it) whenever a guest tries to use a
  * feature that needs an account — posting feedback, saving home/work, starting live
  * navigation, etc. Triggered via store.requireAuth('reason'); closes itself on successful
- * login/register.
+ * login. Registration requires clicking a verification link emailed by Firebase before the
+ * account can actually sign in — the modal stays open showing that instruction instead of
+ * closing right away.
  */
 export const AuthPromptModal: React.FC = () => {
-  const { authPromptOpen, authPromptReason, closeAuthPrompt, login } = useFloodStore();
+  const {
+    authPromptOpen,
+    authPromptReason,
+    closeAuthPrompt,
+    registerAccount,
+    loginAccount,
+    resendVerification,
+    authActionLoading,
+  } = useFloodStore();
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
 
   if (!authPromptOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
+    setInfoMessage('');
 
     if (!email || !email.includes('@')) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
-    if (!password || password.length < 8) {
-      setErrorMessage('Password must be at least 8 characters.');
+    if (!password || password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters.');
       return;
     }
 
-    const success = login(email, password, isRegisterMode ? fullName : undefined);
-    if (!success) {
-      setErrorMessage('Invalid email or password.');
+    const result = isRegisterMode
+      ? await registerAccount(email, password, fullName)
+      : await loginAccount(email, password);
+
+    if (!result.success) {
+      setErrorMessage(result.message);
+      return;
     }
-    // On success, login() itself clears authPromptOpen — no need to close here.
+
+    if (result.needsVerification) {
+      setInfoMessage(result.message);
+      setAwaitingVerification(true);
+      setIsRegisterMode(false);
+      return;
+    }
+    // Successful sign-in: loginAccount() already closed the modal via authPromptOpen: false.
+  };
+
+  const handleResend = async () => {
+    setErrorMessage('');
+    const result = await resendVerification(email, password);
+    setInfoMessage(result.message);
+    if (!result.success) setErrorMessage(result.message);
   };
 
   return (
@@ -71,6 +102,24 @@ export const AuthPromptModal: React.FC = () => {
           <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold rounded-xl text-center">
             ⚠️ {errorMessage}
           </div>
+        )}
+
+        {infoMessage && !errorMessage && (
+          <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl text-center flex items-start space-x-2">
+            <MailCheck className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{infoMessage}</span>
+          </div>
+        )}
+
+        {awaitingVerification && (
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={authActionLoading}
+            className="w-full text-center text-[11px] font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+          >
+            Didn't get it? Resend verification email
+          </button>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3 text-xs font-sans">
@@ -120,10 +169,13 @@ export const AuthPromptModal: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center space-x-2"
+            disabled={authActionLoading}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center space-x-2"
           >
-            <span>{isRegisterMode ? 'REGISTER ACCOUNT' : 'SIGN IN'}</span>
-            <ArrowRight className="w-4 h-4" />
+            <span>
+              {authActionLoading ? 'PLEASE WAIT...' : isRegisterMode ? 'REGISTER ACCOUNT' : 'SIGN IN'}
+            </span>
+            {!authActionLoading && <ArrowRight className="w-4 h-4" />}
           </button>
         </form>
 
@@ -133,6 +185,8 @@ export const AuthPromptModal: React.FC = () => {
             onClick={() => {
               setIsRegisterMode(!isRegisterMode);
               setErrorMessage('');
+              setInfoMessage('');
+              setAwaitingVerification(false);
             }}
             className="text-blue-600 hover:text-blue-700 font-bold"
           >
