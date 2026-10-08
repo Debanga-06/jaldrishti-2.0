@@ -262,4 +262,4 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## License & Compliance
 
-Developed for the Smart India Hackathon (SIH). Compliant with WMO hydroinformatics standards, Open Geospatial Consortium (OGC) specifications, and NDMA Urban Flood Management Guidelines.
+Developed for the Urban Flood Management. Compliant with WMO hydroinformatics standards, Open Geospatial Consortium (OGC) specifications, and NDMA Urban Flood Management Guidelines.
