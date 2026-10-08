@@ -5,6 +5,13 @@
 import { create } from 'zustand';
 import { api } from '../services/api';
 import {
+  registerWithEmail,
+  loginWithEmail,
+  resendVerificationEmail,
+  logoutFirebase,
+  mapFirebaseAuthError,
+} from '../services/firebaseAuth';
+import {
   OperationMode,
   VehicleType,
   MapLayerVisibility,
@@ -27,14 +34,35 @@ import {
 export const FORECAST_TIMESTEPS = [0, 15, 30, 45, 60, 90, 120, 180] as const;
 export type ForecastTimestep = (typeof FORECAST_TIMESTEPS)[number];
 
+interface AuthActionResult {
+  success: boolean;
+  message: string;
+  needsVerification?: boolean;
+}
+
 interface FloodStoreState {
-  // Real Session & Authentication
+  // Real Session & Authentication (backed by Firebase Auth — email/password with mandatory
+  // email verification before a session is considered signed in)
   isAuthenticated: boolean;
   userEmail: string;
   hasCompletedOnboarding: boolean;
+  authActionLoading: boolean;
+  /** @deprecated use registerAccount/loginAccount — kept only to avoid breaking old call sites. */
   login: (email: string, pass: string, name?: string) => boolean;
+  registerAccount: (email: string, pass: string, fullName?: string) => Promise<AuthActionResult>;
+  loginAccount: (email: string, pass: string) => Promise<AuthActionResult>;
+  resendVerification: (email: string, pass: string) => Promise<AuthActionResult>;
   logout: () => void;
   completeOnboarding: () => void;
+
+  // Guest-browsing auth gate: the site itself is browsable without an account, but specific
+  // features (posting feedback, saving home/work, live navigation) require sign-in. Instead of
+  // blocking the whole app behind a login wall, actions call requireAuth() first; if the user
+  // isn't signed in it opens a sign-in/register modal (authPromptOpen) and the action bails out.
+  authPromptOpen: boolean;
+  authPromptReason: string | null;
+  requireAuth: (reason?: string) => boolean;
+  closeAuthPrompt: () => void;
 
   // Navigation & Consumer Platform Experience
   activeNavTab: AppNavTab;
@@ -328,153 +356,146 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
   userEmail: getInitialUserEmail(),
   hasCompletedOnboarding: typeof window !== 'undefined' ? (localStorage.getItem('jaldrishti_onboarding_status') === 'true' || !!localStorage.getItem('jaldrishti_auth_token')) : false,
 
-  login: (email: string, pass: string, name?: string) => {
-    if (!email || !email.includes('@')) return false;
-    if (!pass || pass.length < 8) return false;
+  authActionLoading: false,
 
-    const normalizedKey = email.trim().toLowerCase();
+  // Deprecated synchronous shim, kept only so the type still resolves for any stale
+  // reference. Real sign-in/register now goes through Firebase — see loginAccount /
+  // registerAccount below, which are async and gate on email verification.
+  login: (email: string, pass: string) => {
+    get().loginAccount(email, pass);
+    return true;
+  },
+
+  registerAccount: async (email: string, pass: string, fullName?: string) => {
+    if (!email || !email.includes('@')) {
+      return { success: false, message: 'Please enter a valid email address.' };
+    }
+    if (!pass || pass.length < 6) {
+      return { success: false, message: 'Password should be at least 6 characters.' };
+    }
+
+    set({ authActionLoading: true });
+    try {
+      await registerWithEmail(email, pass, fullName);
+      set({ authActionLoading: false });
+      return {
+        success: true,
+        needsVerification: true,
+        message: `We've sent a verification link to ${email.trim()}. Please verify your email, then sign in.`,
+      };
+    } catch (err: any) {
+      set({ authActionLoading: false });
+      return { success: false, message: mapFirebaseAuthError(err?.code) };
+    }
+  },
+
+  loginAccount: async (email: string, pass: string) => {
+    if (!email || !email.includes('@')) {
+      return { success: false, message: 'Please enter a valid email address.' };
+    }
+    if (!pass) {
+      return { success: false, message: 'Please enter your password.' };
+    }
+
+    set({ authActionLoading: true });
+    let firebaseUser;
+    try {
+      firebaseUser = await loginWithEmail(email, pass);
+    } catch (err: any) {
+      set({ authActionLoading: false });
+      return { success: false, message: mapFirebaseAuthError(err?.code) };
+    }
+
+    // Firebase confirms this is a real, verified account — proceed with the existing local
+    // profile cache + backend (Mongo) sync, same as before.
+    const normalizedKey = (firebaseUser.email || email).trim().toLowerCase();
     const accounts = getStoredAccounts();
+    const cached = accounts[normalizedKey];
 
-    if (accounts[normalizedKey]) {
-      // Existing account - check password match
-      if (accounts[normalizedKey].password !== pass) {
-        return false; // Wrong password - fail authentication
+    const userHome: SavedLocation = cached?.savedHome || {
+      id: 'LOC-HOME-DEFAULT',
+      name: 'Home',
+      address: 'Ballygunge, Kolkata, West Bengal, India',
+      locality: 'Ballygunge',
+      coordinates: [22.5280, 88.3650],
+      type: 'HOME',
+      isSet: true,
+    };
+    const userWork: SavedLocation = cached?.savedWork || {
+      id: 'LOC-WORK-DEFAULT',
+      name: 'Work Office',
+      address: 'Sector V, Salt Lake Electronics Complex, Kolkata, West Bengal, India',
+      locality: 'Salt Lake Sector V',
+      coordinates: [22.5726, 88.4331],
+      type: 'WORK',
+      isSet: true,
+    };
+    const userNotifs = cached?.notificationSettings || {
+      currentWaterlogging: true,
+      predictedFloodRisk: true,
+      heavyRainfallWarning: true,
+      routeFloodRisk: true,
+    };
+
+    accounts[normalizedKey] = {
+      email: normalizedKey,
+      password: pass,
+      name: firebaseUser.displayName || cached?.name || normalizedKey.split('@')[0],
+      savedHome: userHome,
+      savedWork: userWork,
+      notificationSettings: userNotifs,
+    };
+    saveStoredAccounts(accounts);
+
+    try {
+      localStorage.setItem('jaldrishti_auth_session', 'true');
+      localStorage.setItem('jaldrishti_user_email', normalizedKey);
+      localStorage.setItem('jaldrishti_onboarding_status', 'true');
+    } catch (e) {}
+
+    set({
+      isAuthenticated: true,
+      userEmail: normalizedKey,
+      savedHome: userHome,
+      savedWork: userWork,
+      notificationSettings: userNotifs,
+      hasCompletedOnboarding: true,
+      authPromptOpen: false,
+      authPromptReason: null,
+      authActionLoading: false,
+    });
+
+    // Async backend MongoDB Atlas sync (unchanged dual-system pattern)
+    api.login(email, pass).then((res) => {
+      set({ authBackendSyncFailed: false });
+      if (res?.user) {
+        if (res.user.savedHome) set({ savedHome: res.user.savedHome });
+        if (res.user.savedWork) set({ savedWork: res.user.savedWork });
+        if (res.user.notificationPreferences) set({ notificationSettings: res.user.notificationPreferences });
       }
-
-      // Password matched
-      try {
-        localStorage.setItem('jaldrishti_auth_session', 'true');
-        localStorage.setItem('jaldrishti_user_email', normalizedKey);
-        localStorage.setItem('jaldrishti_onboarding_status', 'true');
-      } catch (e) {}
-
-      const userHome = accounts[normalizedKey].savedHome || {
-        id: 'LOC-HOME-DEFAULT',
-        name: 'Home',
-        address: 'Ballygunge, Kolkata, West Bengal, India',
-        locality: 'Ballygunge',
-        coordinates: [22.5280, 88.3650],
-        type: 'HOME',
-        isSet: true,
-      };
-      const userWork = accounts[normalizedKey].savedWork || {
-        id: 'LOC-WORK-DEFAULT',
-        name: 'Work Office',
-        address: 'Sector V, Salt Lake Electronics Complex, Kolkata, West Bengal, India',
-        locality: 'Salt Lake Sector V',
-        coordinates: [22.5726, 88.4331],
-        type: 'WORK',
-        isSet: true,
-      };
-      const userNotifs = accounts[normalizedKey].notificationSettings || {
-        currentWaterlogging: true,
-        predictedFloodRisk: true,
-        heavyRainfallWarning: true,
-        routeFloodRisk: true,
-      };
-
-      set({
-        isAuthenticated: true,
-        userEmail: normalizedKey,
-        savedHome: userHome,
-        savedWork: userWork,
-        notificationSettings: userNotifs,
-        hasCompletedOnboarding: true,
-      });
-
-      // Async backend MongoDB Atlas sync
-      api.login(email, pass).then((res) => {
+      get().syncCommunityFeedbacks();
+    }).catch(() => {
+      api.register(email, pass, firebaseUser.displayName || undefined).then(() => {
         set({ authBackendSyncFailed: false });
-        if (res?.user) {
-          if (res.user.savedHome) set({ savedHome: res.user.savedHome });
-          if (res.user.savedWork) set({ savedWork: res.user.savedWork });
-          if (res.user.notificationPreferences) set({ notificationSettings: res.user.notificationPreferences });
-        }
-        api.getAllFeedbacks().then((fbs) => {
-          if (fbs && Object.keys(fbs).length > 0) set({ communityFeedbacks: fbs });
-        }).catch(() => {});
+        get().syncCommunityFeedbacks();
       }).catch(() => {
-        api.register(email, pass, name).then((res) => {
-          set({ authBackendSyncFailed: false });
-          api.getAllFeedbacks().then((fbs) => {
-            if (fbs && Object.keys(fbs).length > 0) set({ communityFeedbacks: fbs });
-          }).catch(() => {});
-        }).catch(() => {
-          // Both backend login AND register failed for this account: this account's local
-          // password no longer matches what the backend has on record. The UI still shows
-          // it as "logged in" locally, but every backend write (feedback, profile saves) will
-          // 401 silently from here on until the user re-authenticates with the correct
-          // server-side password. Surface this instead of failing invisibly later.
-          set({ authBackendSyncFailed: true });
-        });
+        // Both backend login AND register failed: this account's password isn't in sync with
+        // the Mongo backend (independent of Firebase, which already confirmed identity). Every
+        // backend write (feedback, profile saves) will 401 silently from here on until this
+        // resolves — surface it instead of failing invisibly later.
+        set({ authBackendSyncFailed: true });
       });
+    });
 
-      return true;
-    } else {
-      // New account creation
-      const newHome: SavedLocation = {
-        id: `LOC-HOME-${Date.now()}`,
-        name: 'Home',
-        address: 'Ballygunge, Kolkata, West Bengal, India',
-        locality: 'Ballygunge',
-        coordinates: [22.5280, 88.3650],
-        type: 'HOME',
-        isSet: true,
-      };
-      const newWork: SavedLocation = {
-        id: `LOC-WORK-${Date.now()}`,
-        name: 'Work Office',
-        address: 'Sector V, Salt Lake Electronics Complex, Kolkata, West Bengal, India',
-        locality: 'Salt Lake Sector V',
-        coordinates: [22.5726, 88.4331],
-        type: 'WORK',
-        isSet: true,
-      };
-      const newNotifs = {
-        currentWaterlogging: true,
-        predictedFloodRisk: true,
-        heavyRainfallWarning: true,
-        routeFloodRisk: true,
-      };
+    return { success: true, message: 'Signed in successfully.' };
+  },
 
-      const newAccount: UserAccountData = {
-        email: normalizedKey,
-        password: pass,
-        name: name || normalizedKey.split('@')[0],
-        savedHome: newHome,
-        savedWork: newWork,
-        notificationSettings: newNotifs,
-      };
-
-      accounts[normalizedKey] = newAccount;
-      saveStoredAccounts(accounts);
-
-      try {
-        localStorage.setItem('jaldrishti_auth_session', 'true');
-        localStorage.setItem('jaldrishti_user_email', normalizedKey);
-        localStorage.setItem('jaldrishti_onboarding_status', 'true');
-        localStorage.setItem('jaldrishti_saved_home', JSON.stringify(newHome));
-        localStorage.setItem('jaldrishti_saved_work', JSON.stringify(newWork));
-        localStorage.setItem('jaldrishti_notification_settings', JSON.stringify(newNotifs));
-      } catch (e) {}
-
-      set({
-        isAuthenticated: true,
-        userEmail: normalizedKey,
-        savedHome: newHome,
-        savedWork: newWork,
-        notificationSettings: newNotifs,
-        hasCompletedOnboarding: true,
-      });
-
-      // Async MongoDB registration
-      api.register(email, pass, name).then(() => {
-        api.getAllFeedbacks().then((fbs) => {
-          if (fbs && Object.keys(fbs).length > 0) set({ communityFeedbacks: fbs });
-        }).catch(() => {});
-      }).catch(() => {});
-
-      return true;
+  resendVerification: async (email: string, pass: string) => {
+    try {
+      await resendVerificationEmail(email, pass);
+      return { success: true, message: `Verification link re-sent to ${email.trim()}. Please check your inbox.` };
+    } catch (err: any) {
+      return { success: false, message: mapFirebaseAuthError(err?.code) };
     }
   },
 
@@ -483,8 +504,18 @@ export const useFloodStore = create<FloodStoreState>((set, get) => ({
       localStorage.removeItem('jaldrishti_auth_session');
     } catch (e) {}
     api.logout().catch(() => {});
+    logoutFirebase().catch(() => {});
     set({ isAuthenticated: false, activeNavTab: 'HOME' });
   },
+
+  authPromptOpen: false,
+  authPromptReason: null,
+  requireAuth: (reason?: string) => {
+    if (get().isAuthenticated) return true;
+    set({ authPromptOpen: true, authPromptReason: reason || null });
+    return false;
+  },
+  closeAuthPrompt: () => set({ authPromptOpen: false, authPromptReason: null }),
 
   completeOnboarding: () => {
     try {
